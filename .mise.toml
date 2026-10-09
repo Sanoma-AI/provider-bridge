@@ -1,0 +1,4 @@
+[tools]
+buf = "1.73.0"
+go = "1.26.9"
+golangci-lint = "2.14.0"

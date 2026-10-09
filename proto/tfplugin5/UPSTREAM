@@ -1,0 +1,9 @@
+Source:  https://github.com/opentofu/opentofu/blob/52ade2f770d7b375798023db67db0b8d56653838/docs/plugin-protocol/tfplugin5.10.proto
+Commit:  52ade2f770d7b375798023db67db0b8d56653838 (opentofu/opentofu main, fetched 2026-10-09)
+License: MPL-2.0 (see the SPDX header in tfplugin5.proto)
+
+tfplugin5.proto is a byte-for-byte copy of tfplugin5.10.proto. Do not edit it.
+Package `tfplugin5` is kept because gRPC method paths (/tfplugin5.Provider/GetSchema)
+are on the wire; go_package is set by buf managed mode (buf.gen.tfplugin.yaml).
+To update: download the newest tfplugin5.N.proto at a pinned commit over this file,
+update this note, run `make generate`.

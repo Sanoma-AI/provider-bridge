@@ -1,0 +1,20 @@
+version: v2
+modules:
+  - path: proto
+lint:
+  use:
+    - STANDARD
+  except:
+    # The bridge proto lives at bridge/v1 while its package is
+    # sanoma.providerbridge.v1 (short paths, full package name).
+    - PACKAGE_DIRECTORY_MATCH
+  ignore:
+    # Verbatim copies of OpenTofu's plugin protocol; never edited.
+    - proto/tfplugin5
+    - proto/tfplugin6
+breaking:
+  use:
+    - FILE
+  ignore:
+    - proto/tfplugin5
+    - proto/tfplugin6
