@@ -112,7 +112,11 @@ A list or set block with `maxItems: 1` is SDKv2's way of saying "one object". Th
 - **Pinned, verified provider binaries.** A release is installed only if its `SHA256SUMS` carries a valid OpenPGP signature from a key the registry lists for that release and the zip matches its line in `SHA256SUMS`. Releases without signing keys are refused (OpenTofu itself would accept them with a warning). Only the `terraform-provider-<type>` executable is extracted; its sha256 is re-checked every time it is started. Callers pin a release by the sha256 of its `SHA256SUMS`.
 - **Never auto-upgraded.** Versions are exact; the bridge never resolves ranges or picks "latest".
 - **One bridge per tenant.** Configured providers hold a tenant's credentials, so bridges are not shared. Providers get a minimal environment (`HOME`, `PATH`, proxy and TLS variables, `TF_LOG` when asked): credentials reach them only through `Configure`, never through inherited variables such as `GITHUB_TOKEN`.
-- **Process hygiene.** Each provider runs in its own process group with go-plugin's automatic mTLS; on Linux it gets `SIGKILL` if the bridge dies.
+- **Process hygiene.** Each provider runs in its own process group with go-plugin's automatic mTLS. See the process model below for what happens when the bridge dies.
+
+### Process model
+
+The bridge starts each provider as a child process and stops it on `Close`, and every provider on shutdown (SIGTERM, SIGINT or EOF on stdin): go-plugin asks it to stop over gRPC, then kills it. A bridge killed with SIGKILL cannot do that, and its providers are orphaned: go-plugin's plugin server (v1.8.0, `server.go`) waits only for its gRPC server to stop, which happens when the client sends the controller's `Shutdown` call, not when the connection drops (the broker's stream ending closes only the broker). Checked on macOS with `hashicorp/null` 3.3.2: after `kill -9` of the bridge the provider kept running under PID 1 until it was sent SIGTERM. Providers run in their own process group, so killing the bridge's group does not reach them either. Stop the bridge with SIGTERM or by closing its stdin; a supervisor that must SIGKILL it should also kill its children. (The kernel's parent-death signal is no help in Go: Linux ties it to the OS thread that forked, not to the process, golang/go#27505.)
 
 ## Development
 

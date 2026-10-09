@@ -7,9 +7,10 @@
 //
 // The provider gets a minimal environment (see Env): credentials reach it
 // only through Configure, never through inherited variables such as
-// GITHUB_TOKEN. Its process runs in its own process group and, on Linux,
-// receives SIGKILL when the bridge dies. Its stderr (hclog JSON or plain
-// text) is re-emitted through the bridge's slog logger.
+// GITHUB_TOKEN. Its process runs in its own process group. Clients are not
+// go-plugin "managed": the bridge's Manager kills every provider it started
+// on Close and Shutdown. Its stderr (hclog JSON or plain text) is re-emitted
+// through the bridge's slog logger.
 package plugin
 
 import (
@@ -24,6 +25,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/hashicorp/go-hclog"
 	goplugin "github.com/hashicorp/go-plugin"
@@ -101,7 +103,9 @@ func Start(cfg Config) (*Process, error) {
 	}
 	cmd := exec.Command(cfg.Binary)
 	cmd.Env = Env(cfg.TFLog)
-	setSysProcAttr(cmd)
+	// Own process group: a terminal's SIGINT to the bridge's group does not
+	// reach providers; the bridge stops them itself.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	stderr := &lineLogger{log: log.With("logger", "provider."+cfg.Name)}
 	client := goplugin.NewClient(&goplugin.ClientConfig{
@@ -113,7 +117,6 @@ func Start(cfg Config) (*Process, error) {
 		Cmd:              cmd,
 		AllowedProtocols: []goplugin.Protocol{goplugin.ProtocolGRPC},
 		AutoMTLS:         true,
-		Managed:          true,
 		SkipHostEnv:      true,
 		// go-plugin's own hclog output is discarded; the provider's raw
 		// stderr goes to Stderr and is re-logged by lineLogger.

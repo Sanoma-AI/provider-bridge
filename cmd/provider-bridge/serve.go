@@ -13,8 +13,6 @@ import (
 	"strings"
 	"time"
 
-	goplugin "github.com/hashicorp/go-plugin"
-
 	"github.com/Sanoma-AI/provider-bridge/internal/provider"
 	"github.com/Sanoma-AI/provider-bridge/internal/registry"
 	"github.com/Sanoma-AI/provider-bridge/internal/server"
@@ -77,9 +75,6 @@ func serve(ctx context.Context, args []string, stdin io.Reader, stdout, stderr i
 		}
 		launcher = &provider.OverrideLauncher{Binaries: dev, Next: launcher}
 	}
-	// Deferred calls run last-first: the Manager stops its providers, then
-	// go-plugin kills any managed process that is somehow still alive.
-	defer goplugin.CleanupClients()
 	m := provider.NewManager(launcher, log)
 	defer m.Shutdown()
 
