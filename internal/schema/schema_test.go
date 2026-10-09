@@ -11,6 +11,7 @@ import (
 
 	"github.com/Sanoma-AI/provider-bridge/internal/schema"
 	"github.com/Sanoma-AI/provider-bridge/internal/testutil"
+	"github.com/Sanoma-AI/provider-bridge/internal/values"
 )
 
 func attr(ty cty.Type, flags ...string) *schema.Attribute {
@@ -186,6 +187,15 @@ func TestCoerceConfig(t *testing.T) {
 	}
 	if v := got.GetAttr("tags"); !v.IsNull() {
 		t.Errorf("attributes must not be touched: %#v", v)
+	}
+
+	// A dynamic attribute decoded from JSON has a concrete type.
+	dyn, err := values.FromJSON([]byte(`{"name":"x","extra":{"value":["a",1],"type":["tuple",["string","number"]]}}`), ty)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := schema.CoerceConfig(b, dyn); err != nil || !got.GetAttr("extra").Type().IsTupleType() {
+		t.Fatalf("dynamic attribute: %v %#v", err, got)
 	}
 
 	unknown := cty.ObjectVal(map[string]cty.Value{"api_key": cty.UnknownVal(cty.String)})

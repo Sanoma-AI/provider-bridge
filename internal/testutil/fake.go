@@ -51,10 +51,13 @@ func (l *FakeLauncher) Last() *FakeProvider {
 	return l.last
 }
 
-// FakeProvider is a protocol 6 provider with one resource type, fake_thing
-// (id computed, name computed, secret sensitive). Import passes the ID
-// through; Read of id "gone" returns no object and of id "fail" an error
-// diagnostic on name. Configure fails for api_key "bad".
+// FakeProvider is a protocol 6 provider with two resource types:
+// fake_thing (id computed, name computed, secret sensitive) and fake_dyn
+// (id, and value of DynamicPseudoType). Import passes the ID through; Read
+// of fake_thing id "gone" returns no object and of id "fail" an error
+// diagnostic on name; Read of fake_dyn returns the state unchanged.
+// Configure fails for api_key "bad"; its config also has a dynamic
+// attribute, extra.
 type FakeProvider struct {
 	exited     atomic.Bool
 	killed     atomic.Bool
@@ -63,25 +66,39 @@ type FakeProvider struct {
 
 var _ provider.Instance = (*FakeProvider)(nil)
 
-var fakeThing = &schema.Block{
-	Attributes: map[string]*schema.Attribute{
-		"id":     {Type: schema.Type{Type: cty.String}, Computed: true},
-		"name":   {Type: schema.Type{Type: cty.String}, Computed: true},
-		"secret": {Type: schema.Type{Type: cty.String}, Optional: true, Sensitive: true},
-	},
-	Blocks: map[string]*schema.NestedBlock{},
+func fakeThing() *schema.Block {
+	return &schema.Block{
+		Attributes: map[string]*schema.Attribute{
+			"id":     {Type: schema.Type{Type: cty.String}, Computed: true},
+			"name":   {Type: schema.Type{Type: cty.String}, Computed: true},
+			"secret": {Type: schema.Type{Type: cty.String}, Optional: true, Sensitive: true},
+		},
+		Blocks: map[string]*schema.NestedBlock{},
+	}
 }
 
-// FakeSchema is the schema FakeProvider serves.
+// FakeSchema returns a new copy of the schema FakeProvider serves.
 func FakeSchema() *schema.ProviderSchema {
 	return &schema.ProviderSchema{
 		FormatVersion: schema.FormatVersion,
 		Protocol:      6,
 		ProviderConfig: &schema.Block{
-			Attributes: map[string]*schema.Attribute{"api_key": {Type: schema.Type{Type: cty.String}, Optional: true, Sensitive: true}},
-			Blocks:     map[string]*schema.NestedBlock{},
+			Attributes: map[string]*schema.Attribute{
+				"api_key": {Type: schema.Type{Type: cty.String}, Optional: true, Sensitive: true},
+				"extra":   {Type: schema.Type{Type: cty.DynamicPseudoType}, Optional: true},
+			},
+			Blocks: map[string]*schema.NestedBlock{},
 		},
-		Resources:   map[string]*schema.Resource{"fake_thing": {SchemaVersion: 1, Block: fakeThing}},
+		Resources: map[string]*schema.Resource{
+			"fake_thing": {SchemaVersion: 1, Block: fakeThing()},
+			"fake_dyn": {Block: &schema.Block{
+				Attributes: map[string]*schema.Attribute{
+					"id":    {Type: schema.Type{Type: cty.String}, Required: true},
+					"value": {Type: schema.Type{Type: cty.DynamicPseudoType}, Optional: true},
+				},
+				Blocks: map[string]*schema.NestedBlock{},
+			}},
+		},
 		DataSources: map[string]*schema.Resource{},
 	}
 }
@@ -137,14 +154,19 @@ func (p *FakeProvider) ImportResourceState(_ context.Context, typeName, id strin
 	return []tfproto.ImportedResource{{TypeName: typeName, State: state, Private: []byte("priv")}}, nil, nil
 }
 
-// ReadResource derives state from the id.
+// ReadResource derives fake_thing state from the id and returns fake_dyn
+// state unchanged.
 func (p *FakeProvider) ReadResource(_ context.Context, typeName string, state cty.Value, private []byte) (cty.Value, []byte, tfproto.Diagnostics, error) {
-	if typeName != "fake_thing" {
+	switch typeName {
+	case "fake_dyn":
+		return state, private, nil, nil
+	case "fake_thing":
+	default:
 		return cty.NilVal, nil, nil, &tfproto.UnknownTypeError{TypeName: typeName}
 	}
 	switch id := state.GetAttr("id").AsString(); id {
 	case "gone":
-		return cty.NullVal(fakeThing.ImpliedType()), nil, nil, nil
+		return cty.NullVal(state.Type()), nil, nil, nil
 	case "fail":
 		return cty.NilVal, nil, tfproto.Diagnostics{{Severity: tfproto.SeverityError, Summary: "Read failed", Attribute: "name"}}, nil
 	default:

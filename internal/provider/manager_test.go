@@ -182,6 +182,20 @@ func TestConfigureLifecycle(t *testing.T) {
 	}
 }
 
+// Dynamic attributes arrive with a concrete type, in config and in state.
+func TestDynamicAttributes(t *testing.T) {
+	m, _ := newFakeManager(t)
+	ctx := context.Background()
+	if _, _, err := m.Configure(ctx, fakeRef, `{"api_key":"k","extra":{"value":{"a":[1,2]},"type":["object",{"a":["list","number"]}]}}`); err != nil {
+		t.Fatal(err)
+	}
+	state := `{"id":"d","value":{"value":["x",true],"type":["tuple",["string","bool"]]}}`
+	got, gone, _, err := m.Read(ctx, fakeRef, "fake_dyn", []byte(state), nil)
+	if err != nil || gone || string(got.State) != state {
+		t.Fatalf("read = %s %v %v", got.State, gone, err)
+	}
+}
+
 func TestConfigureErrors(t *testing.T) {
 	m, l := newFakeManager(t)
 	ctx := context.Background()

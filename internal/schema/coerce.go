@@ -4,6 +4,7 @@
 package schema
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/zclconf/go-cty/cty"
@@ -13,13 +14,14 @@ import (
 // core does before handing configuration or state to a provider: a null
 // list, set or map of nested blocks becomes an empty collection, and a null
 // group block becomes an object of nulls. SDKv2 providers reject the null
-// collections otherwise. v must be wholly known.
+// collections otherwise. v must be wholly known and conform to b's implied
+// type: a DynamicPseudoType attribute holds a value of a concrete type.
 func CoerceConfig(b *Block, v cty.Value) (cty.Value, error) {
 	if !v.IsWhollyKnown() {
 		return cty.NilVal, fmt.Errorf("value contains unknowns")
 	}
-	if want := b.ImpliedType(); !v.Type().Equals(want) {
-		return cty.NilVal, fmt.Errorf("value has type %s, want %s", v.Type().FriendlyName(), want.FriendlyName())
+	if errs := v.Type().TestConformance(b.ImpliedType()); len(errs) > 0 {
+		return cty.NilVal, fmt.Errorf("value does not conform to the schema: %w", errors.Join(errs...))
 	}
 	return b.coerce(v), nil
 }
