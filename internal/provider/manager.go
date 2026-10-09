@@ -399,7 +399,8 @@ func (m *Manager) callErr(ref Ref, c *configured, what string, err error) error 
 }
 
 // Import imports the object with the given ID and reads it. A provider may
-// return several resources for one ID; each is read.
+// return several resources for one ID; they are read concurrently and
+// returned in the provider's order.
 func (m *Manager) Import(ctx context.Context, ref Ref, typeName, id string) ([]Resource, tfproto.Diagnostics, error) {
 	ref, c, err := m.instance(ctx, ref)
 	if err != nil {
@@ -419,17 +420,35 @@ func (m *Manager) Import(ctx context.Context, ref Ref, typeName, id string) ([]R
 	if len(imported) == 0 {
 		return nil, nil, newError(CodeNotFound, fmt.Sprintf("import %s %q: provider returned no object", typeName, id), nil)
 	}
-	out := make([]Resource, 0, len(imported))
-	for _, ir := range imported {
-		res, gone, rdiags, err := m.read(ctx, ref, c, ir.TypeName, ir.State, ir.Private)
-		warnings = append(warnings, rdiags...)
-		if err != nil {
-			return nil, nil, err
+	type readResult struct {
+		res   Resource
+		gone  bool
+		diags tfproto.Diagnostics
+		err   error
+	}
+	results := make([]readResult, len(imported))
+	var wg sync.WaitGroup
+	for i, ir := range imported {
+		r, ok := c.schema.Resource(ir.TypeName)
+		if !ok { // the client checks imported types; this is a bug guard
+			return nil, nil, newError(CodeInternal, "import", &tfproto.UnknownTypeError{TypeName: ir.TypeName})
 		}
-		if gone {
+		wg.Go(func() {
+			res, gone, diags, err := m.read(ctx, ref, c, r, ir.TypeName, ir.State, ir.Private)
+			results[i] = readResult{res, gone, diags, err}
+		})
+	}
+	wg.Wait()
+	out := make([]Resource, 0, len(imported))
+	for _, rr := range results {
+		warnings = append(warnings, rr.diags...)
+		if rr.err != nil {
+			return nil, nil, rr.err
+		}
+		if rr.gone {
 			return nil, nil, newError(CodeNotFound, fmt.Sprintf("import %s %q: cannot import non-existent remote object", typeName, id), nil)
 		}
-		out = append(out, res)
+		out = append(out, rr.res)
 	}
 	return out, warnings, nil
 }
@@ -475,11 +494,12 @@ func (m *Manager) Read(ctx context.Context, ref Ref, typeName string, stateJSON,
 			return Resource{}, false, nil, newError(CodeInvalidArgument, "state_json", err)
 		}
 	}
-	res, gone, diags, err := m.read(ctx, ref, c, typeName, state, private)
+	res, gone, diags, err := m.read(ctx, ref, c, r, typeName, state, private)
 	return res, gone, append(warnings, diags...), err
 }
 
-func (m *Manager) read(ctx context.Context, ref Ref, c *configured, typeName string, state cty.Value, private []byte) (Resource, bool, tfproto.Diagnostics, error) {
+// read calls ReadResource; r is typeName's schema.
+func (m *Manager) read(ctx context.Context, ref Ref, c *configured, r *schema.Resource, typeName string, state cty.Value, private []byte) (Resource, bool, tfproto.Diagnostics, error) {
 	newState, newPrivate, diags, err := c.inst.ReadResource(ctx, typeName, state, private)
 	if err != nil {
 		return Resource{}, false, nil, m.callErr(ref, c, "read", err)
@@ -490,7 +510,6 @@ func (m *Manager) read(ctx context.Context, ref Ref, c *configured, typeName str
 	if newState.IsNull() {
 		return Resource{}, true, diags.Warnings(), nil
 	}
-	r, _ := c.schema.Resource(typeName)
 	b, err := values.ToJSON(newState, r.Block.ImpliedType())
 	if err != nil {
 		return Resource{}, false, nil, newError(CodeInternal, fmt.Sprintf("read %s: encode state", typeName), err)

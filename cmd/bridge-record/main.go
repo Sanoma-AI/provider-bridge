@@ -105,12 +105,16 @@ func run(args []string) error {
 type recorder struct {
 	o        *options
 	svc      *server.Service
-	ref      *bridgev1.ProviderRef
 	info     providerInfo
 	schema   *schema.ProviderSchema
 	secrets  map[string]string // env name -> value
 	scrubber *scrubber
 	dir      string
+}
+
+// ref is the provider every request names: the recorded release, pinned.
+func (r *recorder) ref() *bridgev1.ProviderRef {
+	return &bridgev1.ProviderRef{Source: r.info.Source, Version: r.info.Version, Sha256: r.info.SHA256}
 }
 
 type providerInfo struct {
@@ -153,19 +157,18 @@ func record(ctx context.Context, o *options) error {
 	r := &recorder{
 		o:        o,
 		svc:      server.NewService(m),
-		ref:      &bridgev1.ProviderRef{Source: src.String(), Version: o.version, Sha256: o.pin},
+		info:     providerInfo{Source: src.String(), Version: o.version, SHA256: o.pin},
 		secrets:  map[string]string{},
 		scrubber: newScrubber(o.scrub),
 	}
 	name := src.Namespace + "_" + src.Type + "_" + o.version
 	r.dir = filepath.Join(o.out, "replies", name)
 
-	sres, err := r.svc.GetSchema(ctx, connect.NewRequest(&bridgev1.GetSchemaRequest{Provider: r.ref}))
+	sres, err := r.svc.GetSchema(ctx, connect.NewRequest(&bridgev1.GetSchemaRequest{Provider: r.ref()}))
 	if err != nil {
 		return fmt.Errorf("GetSchema: %w", err)
 	}
-	r.ref.Sha256 = sres.Msg.GetSha256()
-	r.info = providerInfo{Source: src.String(), Version: o.version, SHA256: r.ref.Sha256, Protocol: sres.Msg.GetProtocol()}
+	r.info.SHA256, r.info.Protocol = sres.Msg.GetSha256(), sres.Msg.GetProtocol()
 	if r.schema, err = schema.Unmarshal([]byte(sres.Msg.GetSchemaJson())); err != nil {
 		return err
 	}
@@ -182,7 +185,7 @@ func record(ctx context.Context, o *options) error {
 	if err != nil {
 		return err
 	}
-	if _, err := r.svc.Configure(ctx, connect.NewRequest(&bridgev1.ConfigureRequest{Provider: r.ref, ConfigJson: cfg})); err != nil {
+	if _, err := r.svc.Configure(ctx, connect.NewRequest(&bridgev1.ConfigureRequest{Provider: r.ref(), ConfigJson: cfg})); err != nil {
 		return fmt.Errorf("configure: %w", r.scrubErr(err))
 	}
 	for _, imp := range o.imports {
@@ -222,7 +225,7 @@ func (r *recorder) config() (string, error) {
 func (r *recorder) importAndRead(ctx context.Context, typeName, id string) error {
 	dir := filepath.Join(r.dir, typeName, slug(id))
 	r.scrubber.Reset()
-	req := &bridgev1.ImportRequest{Provider: r.ref, TypeName: typeName, Id: id}
+	req := &bridgev1.ImportRequest{Provider: r.ref(), TypeName: typeName, Id: id}
 	res, err := r.svc.Import(ctx, connect.NewRequest(req))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "import %s %s: %v\n", typeName, id, r.scrubErr(err))
@@ -239,7 +242,7 @@ func (r *recorder) importAndRead(ctx context.Context, typeName, id string) error
 		return err
 	}
 	for i, rs := range res.Msg.GetResources() {
-		rreq := &bridgev1.ReadRequest{Provider: r.ref, TypeName: rs.GetTypeName(), StateJson: rs.GetStateJson(), Private: rs.GetPrivate()}
+		rreq := &bridgev1.ReadRequest{Provider: r.ref(), TypeName: rs.GetTypeName(), StateJson: rs.GetStateJson(), Private: rs.GetPrivate()}
 		rres, rerr := r.svc.Read(ctx, connect.NewRequest(rreq))
 		recReq := proto.Clone(rreq).(*bridgev1.ReadRequest)
 		recReq.StateJson = scrubbed.GetResources()[i].GetStateJson()

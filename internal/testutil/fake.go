@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -169,13 +170,18 @@ func thing(id string) cty.Value {
 	})
 }
 
-// ImportResourceState passes the ID through.
+// ImportResourceState passes the ID through; IDs "a,b,..." import one
+// object per comma-separated ID.
 func (p *FakeProvider) ImportResourceState(_ context.Context, typeName, id string) ([]tfproto.ImportedResource, tfproto.Diagnostics, error) {
 	if typeName != "fake_thing" {
 		return nil, nil, &tfproto.UnknownTypeError{TypeName: typeName}
 	}
-	state := cty.ObjectVal(map[string]cty.Value{"id": cty.StringVal(id), "name": cty.NullVal(cty.String), "secret": cty.NullVal(cty.String)})
-	return []tfproto.ImportedResource{{TypeName: typeName, State: state, Private: []byte("priv")}}, nil, nil
+	var out []tfproto.ImportedResource
+	for _, one := range strings.Split(id, ",") {
+		state := cty.ObjectVal(map[string]cty.Value{"id": cty.StringVal(one), "name": cty.NullVal(cty.String), "secret": cty.NullVal(cty.String)})
+		out = append(out, tfproto.ImportedResource{TypeName: typeName, State: state, Private: []byte("priv")})
+	}
+	return out, nil, nil
 }
 
 // UpgradeResourceState upgrades fake_thing state from schema version 0,

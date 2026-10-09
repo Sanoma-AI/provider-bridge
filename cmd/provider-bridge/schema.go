@@ -21,7 +21,7 @@ func schemaCmd(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	var c common
 	fs := flag.NewFlagSet("schema", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	c.register(fs)
+	c.register(fs, true)
 	raw := fs.Bool("raw", false, "print the raw plugin protocol response as protojson")
 	if err := fs.Parse(args); err != nil {
 		return err

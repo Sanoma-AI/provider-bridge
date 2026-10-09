@@ -31,7 +31,7 @@ func fetch(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	var c common
 	fs := flag.NewFlagSet("fetch", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	c.register(fs)
+	c.register(fs, false)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}

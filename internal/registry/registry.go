@@ -113,16 +113,6 @@ type SigningKey struct {
 	ASCIIArmor string `json:"ascii_armor"`
 }
 
-// Version is one entry of a provider's version list.
-type Version struct {
-	Version   string   `json:"version"`
-	Protocols []string `json:"protocols"`
-	Platforms []struct {
-		OS   string `json:"os"`
-		Arch string `json:"arch"`
-	} `json:"platforms"`
-}
-
 // Client talks to provider registries over HTTPS. It only talks to
 // DefaultHost and the hosts in AllowHosts: registries have their own terms
 // of use, and one registry means one verification story.
@@ -227,25 +217,6 @@ func (c *Client) providersBase(ctx context.Context, host string) (*url.URL, erro
 	return base, nil
 }
 
-// Versions lists the versions the registry offers for src.
-func (c *Client) Versions(ctx context.Context, src Source) ([]Version, error) {
-	base, err := c.providersBase(ctx, src.Host)
-	if err != nil {
-		return nil, err
-	}
-	u, err := base.Parse(url.PathEscape(src.Namespace) + "/" + url.PathEscape(src.Type) + "/versions")
-	if err != nil {
-		return nil, err
-	}
-	var doc struct {
-		Versions []Version `json:"versions"`
-	}
-	if err := c.getJSON(ctx, u.String(), &doc); err != nil {
-		return nil, fmt.Errorf("list versions of %s: %w", src, err)
-	}
-	return doc.Versions, nil
-}
-
 // Package fetches the download description of src at version for one
 // platform. Relative URLs in the answer are resolved against the request URL.
 func (c *Client) Package(ctx context.Context, src Source, version, goos, goarch string) (*Package, error) {
@@ -283,9 +254,6 @@ func (c *Client) Package(ctx context.Context, src Source, version, goos, goarch 
 	return &pkg, nil
 }
 
-// ErrNotFound is returned when the registry answers 404.
-var ErrNotFound = errors.New("not found")
-
 func (c *Client) get(ctx context.Context, rawURL string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
@@ -298,9 +266,6 @@ func (c *Client) get(ctx context.Context, rawURL string) (*http.Response, error)
 	}
 	if resp.StatusCode != http.StatusOK {
 		_ = resp.Body.Close()
-		if resp.StatusCode == http.StatusNotFound {
-			return nil, fmt.Errorf("GET %s: %w", rawURL, ErrNotFound)
-		}
 		return nil, fmt.Errorf("GET %s: %s", rawURL, resp.Status)
 	}
 	return resp, nil

@@ -65,11 +65,15 @@ type common struct {
 	allowHosts hostsFlag
 }
 
-func (c *common) register(fs *flag.FlagSet) {
+// register adds the shared flags; withProviders adds the ones that only
+// matter to subcommands that start providers (--tf-log).
+func (c *common) register(fs *flag.FlagSet, withProviders bool) {
 	fs.StringVar(&c.cacheDir, "cache-dir", registry.CacheDir("provider-bridge"), "provider cache directory")
 	fs.StringVar(&c.logLevel, "log-level", "info", "log level: debug, info, warn, error")
-	fs.StringVar(&c.tfLog, "tf-log", "", "TF_LOG level passed to provider processes (e.g. debug); empty disables provider logs")
 	fs.Var(&c.allowHosts, "allow-host", "HOST: also download providers from this registry host (default: "+registry.DefaultHost+" only; repeatable)")
+	if withProviders {
+		fs.StringVar(&c.tfLog, "tf-log", "", "TF_LOG level passed to provider processes (e.g. debug); empty disables provider logs")
+	}
 }
 
 // cache returns the verified provider cache the flags describe.

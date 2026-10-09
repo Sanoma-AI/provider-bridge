@@ -193,6 +193,20 @@ func TestConfigureLifecycle(t *testing.T) {
 		t.Fatalf("import = %+v (%s)", res, res[0].State)
 	}
 
+	// Several imported objects are all read, in the provider's order.
+	many, _, err := m.Import(ctx, fakeRef, "fake_thing", "a,b,c,d")
+	if err != nil || len(many) != 4 {
+		t.Fatalf("import of four = %v, %v", many, err)
+	}
+	for i, id := range []string{"a", "b", "c", "d"} {
+		if want := `{"id":"` + id + `","name":"thing-` + id + `","secret":"s3cret"}`; string(many[i].State) != want {
+			t.Fatalf("import %d = %s", i, many[i].State)
+		}
+	}
+	if _, _, err := m.Import(ctx, fakeRef, "fake_thing", "a,gone"); code(err) != provider.CodeNotFound {
+		t.Fatalf("import with one gone: %v", err)
+	}
+
 	got, gone, _, err := m.Read(ctx, fakeRef, "fake_thing", []byte(`{"id":"b"}`), nil, nil)
 	if err != nil || gone || string(got.State) != `{"id":"b","name":"thing-b","secret":"s3cret"}` {
 		t.Fatalf("read = %+v %v %v", got, gone, err)

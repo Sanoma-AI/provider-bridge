@@ -178,9 +178,6 @@ func fakeRegistry(t *testing.T, keys ...string) (*httptest.Server, *atomic.Int32
 	mux.HandleFunc("/.well-known/terraform.json", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"providers.v1":"/v1/providers/"}`))
 	})
-	mux.HandleFunc("/v1/providers/example/fake/versions", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"versions":[{"version":"1.0.0","protocols":["6.0"],"platforms":[{"os":"linux","arch":"amd64"}]}]}`))
-	})
 	mux.HandleFunc("/v1/providers/example/fake/1.0.0/download/linux/amd64", func(w http.ResponseWriter, _ *http.Request) {
 		var pkg Package
 		pkg.Protocols = []string{"6.0"}
@@ -271,11 +268,6 @@ func TestInstall(t *testing.T) {
 	}
 	if _, err := cache.Install(ctx, src, "1.0.0", pin); err == nil || !strings.Contains(err.Error(), "changed since install") {
 		t.Fatalf("err = %v", err)
-	}
-
-	vs, err := cache.Client.Versions(ctx, src)
-	if err != nil || len(vs) != 1 || vs[0].Version != "1.0.0" {
-		t.Fatalf("Versions = %+v, %v", vs, err)
 	}
 }
 

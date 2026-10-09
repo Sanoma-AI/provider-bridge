@@ -43,7 +43,7 @@ func serve(ctx context.Context, args []string, stdin io.Reader, stdout, stderr i
 	dev := devFlag{}
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	c.register(fs)
+	c.register(fs, true)
 	socket := fs.String("socket", "", "unix socket path to listen on (required)")
 	watchStdin := fs.Bool("watch-stdin", true, "exit when stdin reaches EOF, so the bridge dies with its parent")
 	fs.Var(dev, "dev-provider", "SOURCE=PATH: serve SOURCE from an unverified local binary (tests and provider development only; repeatable)")
