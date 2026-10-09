@@ -78,12 +78,23 @@ var (
 	buildErr  error
 )
 
-// TestProviderBinary builds testprovider/ once per test binary and returns
-// the executable's path. The build needs the testprovider module's
-// dependencies in the module cache (downloaded on first use).
+// TestProviderEnv names an already built test provider (`make testprov`);
+// when it is set, tests use that binary instead of building their own.
+const TestProviderEnv = "PROVIDER_BRIDGE_TESTPROV"
+
+// TestProviderBinary returns the test provider executable: $TestProviderEnv,
+// or testprovider/ built once per test binary. The build needs the
+// testprovider module's dependencies in the module cache (downloaded on
+// first use).
 func TestProviderBinary(t testing.TB) string {
 	t.Helper()
 	SkipShort(t)
+	if bin := os.Getenv(TestProviderEnv); bin != "" {
+		if _, err := os.Stat(bin); err != nil {
+			t.Fatalf("$%s: %v", TestProviderEnv, err)
+		}
+		return bin
+	}
 	buildOnce.Do(func() {
 		root := filepath.Join(CacheDir(t), "testprov")
 		removeStaleBuilds(root)

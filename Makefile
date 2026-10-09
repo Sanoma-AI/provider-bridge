@@ -1,12 +1,14 @@
 # Tools come from .mise.toml; run `mise install` once, then `make <target>`.
 # The main module builds from vendor/ (Go selects -mod=vendor automatically).
 
-GO     ?= go
-BUF    ?= buf
-LINT   ?= golangci-lint
-BINDIR ?= bin
+GO       ?= go
+BUF      ?= buf
+LINT     ?= golangci-lint
+BINDIR   ?= bin
+# The protocol 6 test provider, built once and handed to the tests.
+TESTPROV ?= $(abspath $(BINDIR))/terraform-provider-testprov
 
-.PHONY: all build generate vendor lint test test-short test-integration record check-fresh guard clean
+.PHONY: all build generate vendor lint testprov test test-short test-integration record check-fresh guard clean
 
 all: build
 
@@ -25,21 +27,25 @@ vendor:
 	$(GO) mod tidy
 	$(GO) mod vendor
 
+## lint: golangci-lint (its standard linters include govet)
 lint:
-	$(GO) vet ./...
 	$(LINT) run
 
+## testprov: build the protocol 6 test provider (separate module, not vendored)
+testprov:
+	cd testprovider && GOFLAGS= GOWORK=off $(GO) build -mod=readonly -o $(TESTPROV) .
+
 ## test: everything, including network tests (downloads hashicorp/null)
-test:
-	$(GO) test -race ./...
+test: testprov
+	PROVIDER_BRIDGE_TESTPROV=$(TESTPROV) $(GO) test -race ./...
 
 ## test-short: unit tests only, no network
 test-short:
 	$(GO) test -race -short ./...
 
 ## test-integration: the provider-process tests only
-test-integration:
-	$(GO) test -race -run 'Integration|E2E' ./...
+test-integration: testprov
+	PROVIDER_BRIDGE_TESTPROV=$(TESTPROV) $(GO) test -race -run 'Integration|E2E' ./...
 
 ## record: re-record GitHub fixtures (needs `gh auth login`); never runs in CI
 record:
@@ -56,7 +62,7 @@ check-fresh: guard
 	$(GO) mod verify
 	$(GO) mod tidy -diff
 	$(GO) mod vendor
-	git diff --exit-code -- vendor go.mod go.sum
+	git diff --exit-code -- vendor
 	test -z "$$(git status --porcelain -- vendor)"
 	$(MAKE) generate
 	git diff --exit-code -- gen
