@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -33,27 +34,43 @@ type Source struct {
 	Type      string
 }
 
-var namePart = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
+var (
+	namePart = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
+	// hostname is a DNS name (letters, digits, inner hyphens per label) with
+	// an optional port; it never contains "/", "..", "@" or a leading ".".
+	hostname = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:[0-9]{1,5})?$`)
+)
 
-// ParseSource parses "namespace/type" or "host/namespace/type".
+// ParseSource parses "namespace/type" or "host/namespace/type". Every part
+// is lower-cased, as OpenTofu normalizes them. Parsing does not decide
+// whether a host may be used: Client does (see Client.AllowHosts).
 func ParseSource(s string) (Source, error) {
-	parts := strings.Split(s, "/")
+	parts := strings.Split(strings.ToLower(s), "/")
 	var src Source
 	switch len(parts) {
 	case 2:
 		src = Source{Host: DefaultHost, Namespace: parts[0], Type: parts[1]}
 	case 3:
-		src = Source{Host: strings.ToLower(parts[0]), Namespace: parts[1], Type: parts[2]}
+		src = Source{Host: parts[0], Namespace: parts[1], Type: parts[2]}
 	default:
 		return Source{}, fmt.Errorf("invalid provider source %q: want namespace/type or host/namespace/type", s)
 	}
 	if !namePart.MatchString(src.Namespace) || !namePart.MatchString(src.Type) {
 		return Source{}, fmt.Errorf("invalid provider source %q", s)
 	}
-	if _, err := url.Parse("https://" + src.Host); err != nil || strings.ContainsAny(src.Host, "/@?#") {
-		return Source{}, fmt.Errorf("invalid provider source host %q", src.Host)
+	if err := CheckHost(src.Host); err != nil {
+		return Source{}, err
 	}
 	return src, nil
+}
+
+// CheckHost rejects anything but a lower-case hostname with an optional
+// port.
+func CheckHost(host string) error {
+	if len(host) > 253 || !hostname.MatchString(host) {
+		return fmt.Errorf("invalid registry host %q", host)
+	}
+	return nil
 }
 
 // String returns the short form when the host is the default registry.
@@ -106,34 +123,77 @@ type Version struct {
 	} `json:"platforms"`
 }
 
-// Client talks to provider registries over HTTPS.
+// Client talks to provider registries over HTTPS. It only talks to
+// DefaultHost and the hosts in AllowHosts: registries have their own terms
+// of use, and one registry means one verification story.
 type Client struct {
-	// HTTP is the client used for every request; nil means http.DefaultClient.
+	// HTTP is the client used for every request; nil means a default
+	// client. Either way redirects to anything but https are refused.
 	HTTP *http.Client
-	// Scheme is "https" unless a test overrides it.
-	Scheme string
+	// AllowHosts are the registry hosts allowed besides DefaultHost.
+	AllowHosts []string
 
+	httpOnce  sync.Once
+	hc        *http.Client
 	mu        sync.Mutex
 	discovery map[string]*url.URL
 }
 
-func (c *Client) http() *http.Client {
-	if c.HTTP != nil {
-		return c.HTTP
-	}
-	return http.DefaultClient
+// HostNotAllowedError reports a source on a registry host the client is
+// not allowed to use.
+type HostNotAllowedError struct{ Host string }
+
+func (e *HostNotAllowedError) Error() string {
+	return fmt.Sprintf("registry host %s is not allowed (only %s, unless the bridge runs with --allow-host %s)", e.Host, DefaultHost, e.Host)
 }
 
-func (c *Client) scheme() string {
-	if c.Scheme != "" {
-		return c.Scheme
+func (c *Client) checkAllowed(host string) error {
+	if host == DefaultHost || slices.Contains(c.AllowHosts, host) {
+		return nil
 	}
-	return "https"
+	return &HostNotAllowedError{Host: host}
+}
+
+func (c *Client) http() *http.Client {
+	c.httpOnce.Do(func() {
+		var hc http.Client
+		if c.HTTP != nil {
+			hc = *c.HTTP
+		}
+		hc.CheckRedirect = httpsRedirectsOnly
+		c.hc = &hc
+	})
+	return c.hc
+}
+
+func httpsRedirectsOnly(req *http.Request, via []*http.Request) error {
+	if req.URL.Scheme != "https" {
+		return fmt.Errorf("refusing redirect to %s: not https", req.URL.Redacted())
+	}
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	return nil
+}
+
+// resolveHTTPS resolves ref against base and refuses anything but https.
+func resolveHTTPS(base *url.URL, ref string) (*url.URL, error) {
+	u, err := base.Parse(ref)
+	if err != nil {
+		return nil, err
+	}
+	if u.Scheme != "https" {
+		return nil, fmt.Errorf("refusing %s: not https", u.Redacted())
+	}
+	return u, nil
 }
 
 // providersBase resolves the host's providers.v1 endpoint via service
 // discovery (/.well-known/terraform.json).
 func (c *Client) providersBase(ctx context.Context, host string) (*url.URL, error) {
+	if err := c.checkAllowed(host); err != nil {
+		return nil, err
+	}
 	c.mu.Lock()
 	if u, ok := c.discovery[host]; ok {
 		c.mu.Unlock()
@@ -141,7 +201,7 @@ func (c *Client) providersBase(ctx context.Context, host string) (*url.URL, erro
 	}
 	c.mu.Unlock()
 
-	wellKnown := &url.URL{Scheme: c.scheme(), Host: host, Path: "/.well-known/terraform.json"}
+	wellKnown := &url.URL{Scheme: "https", Host: host, Path: "/.well-known/terraform.json"}
 	var doc struct {
 		ProvidersV1 string `json:"providers.v1"`
 	}
@@ -151,7 +211,7 @@ func (c *Client) providersBase(ctx context.Context, host string) (*url.URL, erro
 	if doc.ProvidersV1 == "" {
 		return nil, fmt.Errorf("service discovery for %s: host does not serve providers.v1", host)
 	}
-	base, err := wellKnown.Parse(doc.ProvidersV1)
+	base, err := resolveHTTPS(wellKnown, doc.ProvidersV1)
 	if err != nil {
 		return nil, fmt.Errorf("service discovery for %s: %w", host, err)
 	}
@@ -211,7 +271,7 @@ func (c *Client) Package(ctx context.Context, src Source, version, goos, goarch 
 		if *field == "" {
 			return nil, fmt.Errorf("download info for %s %s: missing URL", src, version)
 		}
-		abs, err := u.Parse(*field)
+		abs, err := resolveHTTPS(u, *field)
 		if err != nil {
 			return nil, fmt.Errorf("download info for %s %s: %w", src, version, err)
 		}

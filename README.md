@@ -139,7 +139,7 @@ GITHUB_TOKEN="$(gh auth token)" go run ./cmd/bridge-record \
   --config '{"owner":"Sanoma-AI"}' --config-env token=GITHUB_TOKEN \
   --import github_repository=provider-bridge --import github_branch_protection=provider-bridge:main
 STRIPE_API_KEY=sk_test_… go run ./cmd/bridge-record \
-  --provider registry.terraform.io/stripe/stripe --version 0.3.0 \
+  --provider stripe/stripe --version 0.3.0 \
   --config-env api_key=STRIPE_API_KEY --scrub stripe_webhook_endpoint.secret \
   --import stripe_product=prod_… --import stripe_webhook_endpoint=we_…
 ```

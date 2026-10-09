@@ -24,7 +24,8 @@ type Signer struct {
 	Expired bool
 }
 
-// ErrNoSigningKeys is returned for releases the registry lists without keys.
+// ErrNoSigningKeys is returned for a release with no signing key: the
+// registry lists none and the bridge trusts none for the provider.
 var ErrNoSigningKeys = errors.New("release has no signing keys")
 
 // VerifySums checks sig, a detached binary OpenPGP signature over sums,
@@ -59,7 +60,7 @@ func VerifySums(sums, sig []byte, keys []SigningKey) (Signer, error) {
 	if expired != nil {
 		return *expired, nil
 	}
-	return Signer{}, errors.New("check SHA256SUMS signature: not signed by any of the release's signing keys")
+	return Signer{}, errors.New("check SHA256SUMS signature: not signed by any of the release's signing keys or the provider's trusted keys")
 }
 
 func keyID(entity *openpgp.Entity, key SigningKey) string {

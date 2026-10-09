@@ -10,7 +10,7 @@
 //	  --import github_repository=provider-bridge \
 //	  --import github_branch_protection=provider-bridge:main
 //
-//	bridge-record --provider registry.terraform.io/stripe/stripe --version 0.3.0 --schema-only
+//	bridge-record --provider stripe/stripe --version 0.3.0 --schema-only
 //
 // It writes testdata/schemas/<ns>_<type>_<version>.json and
 // testdata/replies/<ns>_<type>_<version>/<resource type>/<id>/{import,read}.json.
@@ -146,7 +146,7 @@ func record(ctx context.Context, o *options) error {
 	}
 	log := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	launcher := &provider.RegistryLauncher{
-		Cache:  &registry.Cache{Dir: o.cacheDir, Client: &registry.Client{}, Logger: log},
+		Cache:  registry.NewCache(o.cacheDir, log, nil),
 		Logger: log,
 		TFLog:  o.tfLog,
 	}

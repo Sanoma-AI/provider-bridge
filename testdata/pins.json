@@ -9,9 +9,9 @@
     "sha256": "2d688e8383ff669297bbb6461f7eb05168f53fe76d3233fdb431e318efedb98f",
     "note": "protocol 5 (SDKv2); recorded with bridge-record"
   },
-  "registry.terraform.io/stripe/stripe": {
+  "stripe/stripe": {
     "version": "0.3.0",
     "sha256": "2e3ae569e1bee7c64ae7f10e6ceaaf5bfab4db7af38979bab28f9b7a35a260c5",
-    "note": "protocol 6 (Plugin Framework); registry.opentofu.org lists no signing key for this release, registry.terraform.io does (A6C87736961A5EF6)"
+    "note": "protocol 6 (Plugin Framework); registry.opentofu.org lists no signing key for this release, so it verifies against the trusted key A6C87736961A5EF6 (internal/registry/keys)"
   }
 }

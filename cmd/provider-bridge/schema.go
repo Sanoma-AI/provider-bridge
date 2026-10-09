@@ -14,7 +14,6 @@ import (
 
 	"github.com/Sanoma-AI/provider-bridge/internal/plugin"
 	"github.com/Sanoma-AI/provider-bridge/internal/provider"
-	"github.com/Sanoma-AI/provider-bridge/internal/registry"
 	"github.com/Sanoma-AI/provider-bridge/internal/tfproto"
 )
 
@@ -38,7 +37,7 @@ func schemaCmd(ctx context.Context, args []string, stdout, stderr io.Writer) err
 		return err
 	}
 	launcher := &provider.RegistryLauncher{
-		Cache:  &registry.Cache{Dir: c.cacheDir, Client: &registry.Client{}, Logger: log},
+		Cache:  c.cache(log),
 		Logger: log,
 		TFLog:  c.tfLog,
 	}

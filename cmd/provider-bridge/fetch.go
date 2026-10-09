@@ -43,8 +43,7 @@ func fetch(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	cache := &registry.Cache{Dir: c.cacheDir, Client: &registry.Client{}, Logger: log}
-	inst, err := cache.Install(ctx, src, version, pin)
+	inst, err := c.cache(log).Install(ctx, src, version, pin)
 	if err != nil {
 		return err
 	}

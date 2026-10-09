@@ -150,7 +150,7 @@ func goTool() string { return "go" }
 func Launcher(t testing.TB, log *slog.Logger, withTestProvider bool) *provider.RegistryLauncher {
 	t.Helper()
 	l := &provider.RegistryLauncher{
-		Cache:  &registry.Cache{Dir: CacheDir(t), Client: &registry.Client{}, Logger: log},
+		Cache:  registry.NewCache(CacheDir(t), log, nil),
 		Logger: log,
 	}
 	if withTestProvider {

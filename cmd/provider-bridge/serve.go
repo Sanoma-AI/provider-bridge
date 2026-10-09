@@ -74,7 +74,7 @@ func serve(ctx context.Context, args []string, stdin io.Reader, stdout, stderr i
 		log.Warn("dev provider override: binary is not verified", "provider", source, "binary", path)
 	}
 	launcher := &provider.RegistryLauncher{
-		Cache:  &registry.Cache{Dir: c.cacheDir, Client: &registry.Client{}, Logger: log},
+		Cache:  c.cache(log),
 		Logger: log,
 		TFLog:  c.tfLog,
 		Dev:    dev,

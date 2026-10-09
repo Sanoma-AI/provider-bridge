@@ -41,6 +41,14 @@ Test provider (testprovider/, not shipped)
   github.com/hashicorp/terraform-plugin-framework and terraform-plugin-go
   (MPL-2.0), which are never linked into cmd/provider-bridge.
 
+Stripe release signing material (internal/registry)
+  internal/registry/keys/stripe_stripe.asc is the OpenPGP public key that
+  signs stripe/terraform-provider-stripe releases (fingerprint
+  D50A40BBC524CBE00E7ECC6FA6C87736961A5EF6); internal/registry/testdata/
+  stripe_0.3.0_SHA256SUMS and its .sig are copied unmodified from that
+  project's v0.3.0 GitHub release. They are public data used to verify
+  releases; see internal/registry/keys/README.md.
+
 Recorded fixtures (testdata/)
   testdata/schemas and testdata/replies hold schemas and API replies
   recorded from provider binaries (integrations/github, stripe/stripe,

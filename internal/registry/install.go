@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -55,8 +56,17 @@ type Cache struct {
 	Dir    string
 	Client *Client
 	Logger *slog.Logger
+	// TrustedKeys are signing keys accepted for a provider besides those the
+	// registry lists for the release.
+	TrustedKeys Keyring
 	// GOOS and GOARCH default to the running platform.
 	GOOS, GOARCH string
+}
+
+// NewCache returns a cache in dir that downloads from DefaultHost and
+// allowHosts and trusts the bridge's built-in keys (TrustedKeys).
+func NewCache(dir string, log *slog.Logger, allowHosts []string) *Cache {
+	return &Cache{Dir: dir, Client: &Client{AllowHosts: allowHosts}, Logger: log, TrustedKeys: TrustedKeys()}
 }
 
 func (c *Cache) logger() *slog.Logger {
@@ -160,7 +170,8 @@ func (c *Cache) download(ctx context.Context, src Source, version, goos, goarch,
 	if err != nil {
 		return nil, fmt.Errorf("download SHA256SUMS signature: %w", err)
 	}
-	signer, err := VerifySums(sums, sig, pkg.SigningKeys.GPGPublicKeys)
+	keys := append(slices.Clone(pkg.SigningKeys.GPGPublicKeys), c.TrustedKeys.For(src)...)
+	signer, err := VerifySums(sums, sig, keys)
 	if err != nil {
 		return nil, fmt.Errorf("%s %s: %w", src, version, err)
 	}
