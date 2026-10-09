@@ -1,0 +1,174 @@
+// Copyright 2026 Sanoma AI
+// SPDX-License-Identifier: Apache-2.0
+
+package provider_test
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/Sanoma-AI/provider-bridge/internal/provider"
+	"github.com/Sanoma-AI/provider-bridge/internal/testutil"
+)
+
+var fakeRef = provider.Ref{Source: "example/fake", Version: "1.0.0"}
+
+func newFakeManager(t *testing.T) (*provider.Manager, *testutil.FakeLauncher) {
+	t.Helper()
+	l := &testutil.FakeLauncher{}
+	m := provider.NewManager(l, testutil.Logger(t))
+	t.Cleanup(m.Shutdown)
+	return m, l
+}
+
+func code(err error) provider.Code {
+	var e *provider.Error
+	if errors.As(err, &e) {
+		return e.Code
+	}
+	return -1
+}
+
+func TestSchemaIsCached(t *testing.T) {
+	m, l := newFakeManager(t)
+	ctx := context.Background()
+	for range 3 {
+		res, err := m.Schema(ctx, fakeRef)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Schema.Source != "example/fake" || res.Schema.Version != "1.0.0" || res.SHA256 != testutil.FakeSHA256 {
+			t.Fatalf("schema identity = %s %s %s", res.Schema.Source, res.Schema.Version, res.SHA256)
+		}
+	}
+	if l.Starts.Load() != 1 {
+		t.Fatalf("started %d instances for one schema", l.Starts.Load())
+	}
+	if !l.Last().Killed() {
+		t.Fatal("schema instance left running")
+	}
+	// The long form of the source shares the cache entry.
+	if _, err := m.Schema(ctx, provider.Ref{Source: "registry.opentofu.org/example/fake", Version: "1.0.0"}); err != nil || l.Starts.Load() != 1 {
+		t.Fatalf("long source form: err=%v starts=%d", err, l.Starts.Load())
+	}
+}
+
+func TestPinMismatch(t *testing.T) {
+	m, _ := newFakeManager(t)
+	ref := fakeRef
+	ref.SHA256 = "00"
+	if _, err := m.Schema(context.Background(), ref); code(err) != provider.CodeFailedPrecondition {
+		t.Fatalf("err = %v", err)
+	}
+	if _, _, err := m.Configure(context.Background(), ref, "{}"); code(err) != provider.CodeFailedPrecondition {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestInvalidRefs(t *testing.T) {
+	m, _ := newFakeManager(t)
+	for _, ref := range []provider.Ref{{}, {Source: "x", Version: "1.0.0"}, {Source: "a/b", Version: "~> 1.0"}} {
+		if _, err := m.Schema(context.Background(), ref); code(err) != provider.CodeInvalidArgument {
+			t.Errorf("Schema(%+v) err = %v", ref, err)
+		}
+	}
+}
+
+func TestConfigureLifecycle(t *testing.T) {
+	m, l := newFakeManager(t)
+	ctx := context.Background()
+
+	if _, _, err := m.Import(ctx, fakeRef, "fake_thing", "a"); code(err) != provider.CodeFailedPrecondition {
+		t.Fatalf("import before configure: %v", err)
+	}
+	warnings, sha, err := m.Configure(ctx, fakeRef, `{"api_key":"k"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 1 || sha != testutil.FakeSHA256 {
+		t.Fatalf("warnings=%v sha=%s", warnings, sha)
+	}
+	// Same config: idempotent, no new process.
+	if _, _, err := m.Configure(ctx, fakeRef, `{"api_key":"k"}`); err != nil || l.Starts.Load() != 1 {
+		t.Fatalf("reconfigure: err=%v starts=%d", err, l.Starts.Load())
+	}
+	// Other config: refused.
+	if _, _, err := m.Configure(ctx, fakeRef, `{"api_key":"other"}`); code(err) != provider.CodeFailedPrecondition {
+		t.Fatalf("other config: %v", err)
+	}
+
+	res, _, err := m.Import(ctx, fakeRef, "fake_thing", "a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res) != 1 || string(res[0].State) != `{"id":"a","name":"thing-a","secret":"s3cret"}` || string(res[0].Private) != "priv+" || res[0].SchemaVersion != 1 {
+		t.Fatalf("import = %+v (%s)", res, res[0].State)
+	}
+
+	got, gone, _, err := m.Read(ctx, fakeRef, "fake_thing", []byte(`{"id":"b"}`), nil)
+	if err != nil || gone || string(got.State) != `{"id":"b","name":"thing-b","secret":"s3cret"}` {
+		t.Fatalf("read = %+v %v %v", got, gone, err)
+	}
+	if _, gone, _, err := m.Read(ctx, fakeRef, "fake_thing", []byte(`{"id":"gone"}`), nil); err != nil || !gone {
+		t.Fatalf("read gone = %v %v", gone, err)
+	}
+	if _, _, err := m.Import(ctx, fakeRef, "fake_thing", "gone"); code(err) != provider.CodeNotFound {
+		t.Fatalf("import gone: %v", err)
+	}
+	_, _, _, err = m.Read(ctx, fakeRef, "fake_thing", []byte(`{"id":"fail"}`), nil)
+	var perr *provider.Error
+	if !errors.As(err, &perr) || perr.Code != provider.CodeFailedPrecondition || len(perr.Diagnostics) != 1 || perr.Diagnostics[0].Attribute != "name" {
+		t.Fatalf("read fail: %#v", err)
+	}
+	for _, bad := range []string{`{"nope":1}`, `[]`, `null`, ``} {
+		if _, _, _, err := m.Read(ctx, fakeRef, "fake_thing", []byte(bad), nil); code(err) != provider.CodeInvalidArgument {
+			t.Errorf("read %q: %v", bad, err)
+		}
+	}
+	if _, _, _, err := m.Read(ctx, fakeRef, "fake_nope", []byte(`{}`), nil); code(err) != provider.CodeInvalidArgument {
+		t.Fatalf("unknown type: %v", err)
+	}
+	if _, _, err := m.Import(ctx, fakeRef, "fake_nope", "x"); code(err) != provider.CodeInvalidArgument {
+		t.Fatalf("unknown type import: %v", err)
+	}
+
+	// The process dies: calls fail Unavailable, Configure starts a new one.
+	l.Last().Exit()
+	if _, _, err := m.Import(ctx, fakeRef, "fake_thing", "a"); code(err) != provider.CodeUnavailable {
+		t.Fatalf("after exit: %v", err)
+	}
+	if _, _, err := m.Configure(ctx, fakeRef, `{"api_key":"other"}`); err != nil || l.Starts.Load() != 2 {
+		t.Fatalf("configure after exit: err=%v starts=%d", err, l.Starts.Load())
+	}
+
+	m.Close(&provider.Ref{Source: "registry.opentofu.org/example/fake", Version: "1.0.0"})
+	if !l.Last().Killed() {
+		t.Fatal("Close did not kill the instance")
+	}
+	if _, _, err := m.Import(ctx, fakeRef, "fake_thing", "a"); code(err) != provider.CodeFailedPrecondition {
+		t.Fatalf("after close: %v", err)
+	}
+}
+
+func TestConfigureErrors(t *testing.T) {
+	m, l := newFakeManager(t)
+	ctx := context.Background()
+	_, _, err := m.Configure(ctx, fakeRef, `{"api_key":"bad"}`)
+	var perr *provider.Error
+	if !errors.As(err, &perr) || perr.Code != provider.CodeFailedPrecondition || perr.Diagnostics[0].Attribute != "api_key" {
+		t.Fatalf("bad key: %v", err)
+	}
+	if !l.Last().Killed() {
+		t.Fatal("failed instance left running")
+	}
+	for _, bad := range []string{`{"nope":1}`, `[1]`, `null`, `{"api_key":`} {
+		if _, _, err := m.Configure(ctx, fakeRef, bad); code(err) != provider.CodeInvalidArgument {
+			t.Errorf("config %q: %v", bad, err)
+		}
+	}
+	m.Shutdown()
+	if _, _, err := m.Configure(ctx, fakeRef, `{}`); code(err) != provider.CodeUnavailable {
+		t.Fatalf("after shutdown: %v", err)
+	}
+}

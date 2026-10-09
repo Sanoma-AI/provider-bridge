@@ -1,0 +1,30 @@
+{
+  "provider": {
+    "source": "integrations/github",
+    "version": "6.13.0",
+    "sha256": "2d688e8383ff669297bbb6461f7eb05168f53fe76d3233fdb431e318efedb98f",
+    "protocol": 5
+  },
+  "request": {
+    "provider": {
+      "source": "integrations/github",
+      "version": "6.13.0",
+      "sha256": "2d688e8383ff669297bbb6461f7eb05168f53fe76d3233fdb431e318efedb98f"
+    },
+    "typeName": "github_repository",
+    "id": "sanoma"
+  },
+  "response": {
+    "resources": [
+      {
+        "typeName": "github_repository",
+        "stateJson": "{\"allow_auto_merge\":false,\"allow_forking\":true,\"allow_merge_commit\":true,\"allow_rebase_merge\":true,\"allow_squash_merge\":true,\"allow_update_branch\":false,\"archive_on_destroy\":null,\"archived\":false,\"auto_init\":false,\"default_branch\":\"main\",\"delete_branch_on_merge\":false,\"description\":\"Open core: schema, planner, Cedar policies, ledger format, MCP server, local studio, CLI, first-party connectors, modules\",\"etag\":\"W/\\\"ab79cd98586f8a9ddcb814ecfa3e75101aef3bed6060e2d36024d802425b6e1c\\\"\",\"fork\":\"false\",\"full_name\":\"Sanoma-AI/sanoma\",\"git_clone_url\":\"git://github.com/Sanoma-AI/sanoma.git\",\"gitignore_template\":null,\"has_discussions\":false,\"has_downloads\":false,\"has_issues\":true,\"has_projects\":true,\"has_wiki\":false,\"homepage_url\":\"\",\"html_url\":\"https://github.com/Sanoma-AI/sanoma\",\"http_clone_url\":\"https://github.com/Sanoma-AI/sanoma.git\",\"id\":\"sanoma\",\"ignore_vulnerability_alerts_during_read\":null,\"is_template\":false,\"license_template\":null,\"merge_commit_message\":\"PR_TITLE\",\"merge_commit_title\":\"MERGE_MESSAGE\",\"name\":\"sanoma\",\"node_id\":\"R_kgDOU0BoZg\",\"pages\":[],\"primary_language\":\"TypeScript\",\"private\":false,\"repo_id\":1396729958,\"security_and_analysis\":[{\"advanced_security\":[],\"code_security\":[],\"secret_scanning\":[{\"status\":\"disabled\"}],\"secret_scanning_ai_detection\":[],\"secret_scanning_non_provider_patterns\":[],\"secret_scanning_push_protection\":[{\"status\":\"disabled\"}]}],\"source_owner\":\"\",\"source_repo\":\"\",\"squash_merge_commit_message\":\"COMMIT_MESSAGES\",\"squash_merge_commit_title\":\"COMMIT_OR_PR_TITLE\",\"ssh_clone_url\":\"git@github.com:Sanoma-AI/sanoma.git\",\"svn_url\":\"https://github.com/Sanoma-AI/sanoma\",\"template\":[],\"topics\":[],\"visibility\":\"public\",\"vulnerability_alerts\":true,\"web_commit_signoff_required\":false}",
+        "private": "eyJzY2hlbWFfdmVyc2lvbiI6IjEifQ==",
+        "schemaVersion": "1"
+      }
+    ]
+  },
+  "scrubbed": [
+    "$GITHUB_TOKEN"
+  ]
+}

@@ -1,0 +1,4 @@
+gen/** linguist-generated=true
+vendor/** linguist-vendored=true
+testdata/schemas/*.json linguist-generated=true
+testdata/replies/**/*.json linguist-generated=true

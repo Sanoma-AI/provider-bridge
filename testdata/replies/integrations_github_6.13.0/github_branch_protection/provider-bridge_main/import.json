@@ -1,0 +1,32 @@
+{
+  "provider": {
+    "source": "integrations/github",
+    "version": "6.13.0",
+    "sha256": "2d688e8383ff669297bbb6461f7eb05168f53fe76d3233fdb431e318efedb98f",
+    "protocol": 5
+  },
+  "request": {
+    "provider": {
+      "source": "integrations/github",
+      "version": "6.13.0",
+      "sha256": "2d688e8383ff669297bbb6461f7eb05168f53fe76d3233fdb431e318efedb98f"
+    },
+    "typeName": "github_branch_protection",
+    "id": "provider-bridge:main"
+  },
+  "response": {
+    "error": {
+      "code": "failed_precondition",
+      "message": "import github_branch_protection \"provider-bridge:main\": could not find a branch protection rule with the pattern 'main'",
+      "diagnostics": [
+        {
+          "severity": "SEVERITY_ERROR",
+          "summary": "could not find a branch protection rule with the pattern 'main'"
+        }
+      ]
+    }
+  },
+  "scrubbed": [
+    "$GITHUB_TOKEN"
+  ]
+}

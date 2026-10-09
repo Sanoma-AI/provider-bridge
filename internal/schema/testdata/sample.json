@@ -1,0 +1,179 @@
+{
+  "dataSources": {},
+  "formatVersion": 1,
+  "protocol": 6,
+  "providerConfig": {
+    "attributes": {
+      "api_key": {
+        "optional": true,
+        "sensitive": true,
+        "type": "string"
+      }
+    },
+    "blocks": {}
+  },
+  "resources": {
+    "sample_item": {
+      "block": {
+        "attributes": {
+          "extra": {
+            "optional": true,
+            "type": "dynamic"
+          },
+          "id": {
+            "computed": true,
+            "type": "string"
+          },
+          "members": {
+            "optional": true,
+            "type": [
+              "set",
+              "string"
+            ]
+          },
+          "name": {
+            "required": true,
+            "type": "string"
+          },
+          "ports": {
+            "nestedType": {
+              "attributes": {
+                "number": {
+                  "required": true,
+                  "type": "number"
+                }
+              },
+              "nesting": "list"
+            },
+            "optional": true,
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "number": "number"
+                }
+              ]
+            ]
+          },
+          "settings": {
+            "nestedType": {
+              "attributes": {
+                "level": {
+                  "optional": true,
+                  "type": "number"
+                },
+                "secret": {
+                  "optional": true,
+                  "sensitive": true,
+                  "type": "string"
+                }
+              },
+              "nesting": "single"
+            },
+            "optional": true,
+            "type": [
+              "object",
+              {
+                "level": "number",
+                "secret": "string"
+              }
+            ]
+          },
+          "tags": {
+            "optional": true,
+            "type": [
+              "map",
+              "string"
+            ]
+          }
+        },
+        "blocks": {
+          "labels": {
+            "block": {
+              "attributes": {
+                "color": {
+                  "optional": true,
+                  "type": "string"
+                }
+              },
+              "blocks": {}
+            },
+            "nesting": "map"
+          },
+          "meta": {
+            "block": {
+              "attributes": {
+                "note": {
+                  "optional": true,
+                  "type": "string"
+                }
+              },
+              "blocks": {}
+            },
+            "nesting": "group"
+          },
+          "owner": {
+            "block": {
+              "attributes": {
+                "login": {
+                  "required": true,
+                  "type": "string"
+                }
+              },
+              "blocks": {}
+            },
+            "maxItems": 1,
+            "nesting": "list"
+          },
+          "rule": {
+            "block": {
+              "attributes": {
+                "name": {
+                  "required": true,
+                  "type": "string"
+                },
+                "port": {
+                  "optional": true,
+                  "type": "number"
+                }
+              },
+              "blocks": {
+                "match": {
+                  "block": {
+                    "attributes": {
+                      "path": {
+                        "optional": true,
+                        "type": "string"
+                      }
+                    },
+                    "blocks": {}
+                  },
+                  "nesting": "set"
+                }
+              }
+            },
+            "nesting": "list"
+          },
+          "timeouts": {
+            "block": {
+              "attributes": {
+                "read": {
+                  "optional": true,
+                  "type": "string"
+                }
+              },
+              "blocks": {}
+            },
+            "nesting": "single"
+          }
+        },
+        "description": "An item.",
+        "descriptionKind": "markdown"
+      },
+      "schemaVersion": 2
+    }
+  },
+  "source": "example/sample",
+  "version": "1.0.0"
+}

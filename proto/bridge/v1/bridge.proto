@@ -1,0 +1,132 @@
+// Copyright 2026 Sanoma AI
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+
+package sanoma.providerbridge.v1;
+
+// BridgeService exposes OpenTofu providers to the Sanoma engine.
+//
+// Values cross this API as JSON text in `string` fields, not as
+// google.protobuf.Struct, so that numbers keep full precision and a null
+// attribute stays distinct from an absent one. Every JSON object follows the
+// provider's schema as returned by GetSchema: nested blocks and nested
+// attributes become arrays (list, set), objects (single, group) or records
+// (map); dynamic attributes are encoded as {"value": ..., "type": ...}.
+//
+// Error diagnostics from the provider become a Connect error whose details
+// carry one Diagnostic per diagnostic; warnings are returned in the response.
+service BridgeService {
+  // GetSchema downloads (once, verified) and starts the provider, returns its
+  // normalized schema document and stops it again. It needs no credentials.
+  rpc GetSchema(GetSchemaRequest) returns (GetSchemaResponse);
+  // Configure starts a long-lived provider instance and configures it.
+  // Idempotent for the same config; a different config for the same
+  // (source, version) fails with FAILED_PRECONDITION until Close.
+  rpc Configure(ConfigureRequest) returns (ConfigureResponse);
+  // Import runs ImportResourceState and then ReadResource on each result.
+  rpc Import(ImportRequest) returns (ImportResponse);
+  // Read refreshes one resource from the vendor. `gone` means it no longer
+  // exists.
+  rpc Read(ReadRequest) returns (ReadResponse);
+  // Close stops one configured provider, or all of them.
+  rpc Close(CloseRequest) returns (CloseResponse);
+}
+
+// ProviderRef names a provider release on the OpenTofu registry.
+message ProviderRef {
+  // Registry source address: "namespace/type" or "host/namespace/type",
+  // e.g. "integrations/github".
+  string source = 1;
+  // Exact version, e.g. "6.13.0". Ranges are not accepted: providers are
+  // never upgraded implicitly.
+  string version = 2;
+  // Hex sha256 of the release's SHA256SUMS document. When set, the bridge
+  // refuses a release whose SHA256SUMS differs. Always echoed in responses.
+  string sha256 = 3;
+}
+
+message GetSchemaRequest {
+  ProviderRef provider = 1;
+}
+
+message GetSchemaResponse {
+  // The schema document (formatVersion 1), see README.
+  string schema_json = 1;
+  // Negotiated plugin protocol major version: 5 or 6.
+  int32 protocol = 2;
+  // Hex sha256 of the release's SHA256SUMS document.
+  string sha256 = 3;
+}
+
+message ConfigureRequest {
+  ProviderRef provider = 1;
+  // Provider configuration as a JSON object; omitted attributes are null.
+  string config_json = 2;
+}
+
+message ConfigureResponse {
+  repeated Diagnostic warnings = 1;
+  // Hex sha256 of the release's SHA256SUMS document.
+  string sha256 = 2;
+}
+
+// Resource is one resource instance's state.
+message Resource {
+  string type_name = 1;
+  // State as a JSON object of the resource type's implied type.
+  string state_json = 2;
+  // Provider-private data. Opaque: pass it back unchanged on the next Read.
+  bytes private = 3;
+  // The resource type's schema version that produced state_json.
+  int64 schema_version = 4;
+}
+
+message ImportRequest {
+  ProviderRef provider = 1;
+  string type_name = 2;
+  // Provider-specific import ID, e.g. "repo" or "repo:main".
+  string id = 3;
+}
+
+message ImportResponse {
+  repeated Resource resources = 1;
+  repeated Diagnostic warnings = 2;
+}
+
+message ReadRequest {
+  ProviderRef provider = 1;
+  string type_name = 2;
+  string state_json = 3;
+  bytes private = 4;
+}
+
+message ReadResponse {
+  // Unset when gone is true.
+  Resource resource = 1;
+  // The remote object no longer exists.
+  bool gone = 2;
+  repeated Diagnostic warnings = 3;
+}
+
+message CloseRequest {
+  // Unset closes every provider instance.
+  ProviderRef provider = 1;
+}
+
+message CloseResponse {}
+
+message Diagnostic {
+  enum Severity {
+    SEVERITY_UNSPECIFIED = 0;
+    SEVERITY_ERROR = 1;
+    SEVERITY_WARNING = 2;
+  }
+  Severity severity = 1;
+  string summary = 2;
+  string detail = 3;
+  // Attribute path in the provider's terms, e.g. "settings.secret",
+  // "rules[0].name" or `tags["env"]`. Empty when the diagnostic is not
+  // about one attribute.
+  string attribute_path = 4;
+}
