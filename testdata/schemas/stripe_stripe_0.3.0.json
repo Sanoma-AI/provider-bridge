@@ -55607,6 +55607,6 @@
       "schemaVersion": 1
     }
   },
-  "source": "registry.terraform.io/stripe/stripe",
+  "source": "stripe/stripe",
   "version": "0.3.0"
 }

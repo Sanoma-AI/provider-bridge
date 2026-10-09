@@ -126,7 +126,7 @@ func TestScrubber(t *testing.T) {
 	block := s.Resources["fake_thing"].Block
 	block.Attributes["nested"] = &schema.Attribute{Optional: true, NestedType: &schema.Object{
 		Nesting:    schema.NestingList,
-		Attributes: map[string]*schema.Attribute{"token": {Type: schema.Type{Type: cty.String}, Sensitive: true}, "label": {Type: schema.Type{Type: cty.String}}},
+		Attributes: map[string]*schema.Attribute{"token": {Type: cty.String, Sensitive: true}, "label": {Type: cty.String}},
 	}}
 	block.FillTypes()
 	ty := block.ImpliedType()

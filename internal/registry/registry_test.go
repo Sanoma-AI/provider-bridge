@@ -12,11 +12,13 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func readTestdata(t *testing.T, name string) []byte {
@@ -99,18 +101,57 @@ func TestParseSource(t *testing.T) {
 	for in, want := range map[string]string{
 		"integrations/github":                       "integrations/github",
 		"registry.opentofu.org/hashicorp/null":      "hashicorp/null",
-		"Example.COM/acme/thing":                    "example.com/acme/thing",
-		"registry.terraform.io/stripe/stripe":       "registry.terraform.io/stripe/stripe",
+		"Example.COM/Acme/Thing":                    "example.com/acme/thing",
+		"127.0.0.1:8443/acme/thing":                 "127.0.0.1:8443/acme/thing",
 		"registry.opentofu.org/integrations/github": "integrations/github",
+		// Parses; whether the host may be used is the Client's decision.
+		"registry.terraform.io/stripe/stripe": "registry.terraform.io/stripe/stripe",
 	} {
 		src, err := ParseSource(in)
 		if err != nil || src.String() != want {
 			t.Errorf("ParseSource(%q) = %q, %v; want %q", in, src, err, want)
 		}
 	}
-	for _, in := range []string{"", "github", "a/b/c/d", "../x", "ns/../x", "h@x/a/b"} {
+	for _, in := range []string{
+		"", "github", "a/b/c/d", "../x", "ns/../x", "h@x/a/b",
+		"../foo/bar", "./foo/bar", "./ns/x", "a..b/ns/x", ".a/ns/x", "a./ns/x", "-a/ns/x", "a b/ns/x", "a:b/ns/x", "a:123456/ns/x",
+	} {
 		if _, err := ParseSource(in); err == nil {
 			t.Errorf("ParseSource(%q) succeeded", in)
+		}
+	}
+}
+
+func TestTrustedKeys(t *testing.T) {
+	keys := TrustedKeys().For(Source{Host: DefaultHost, Namespace: "stripe", Type: "stripe"})
+	if len(keys) != 1 || keys[0].KeyID != "A6C87736961A5EF6" {
+		t.Fatalf("stripe/stripe trusted keys = %+v", keys)
+	}
+	// The key verifies the stripe/stripe 0.3.0 SHA256SUMS that
+	// registry.opentofu.org points at (copied from the GitHub release), whose
+	// sha256 is the pin in testdata/pins.json.
+	sums := readTestdata(t, "stripe_0.3.0_SHA256SUMS")
+	if got := sha256.Sum256(sums); hex.EncodeToString(got[:]) != "2e3ae569e1bee7c64ae7f10e6ceaaf5bfab4db7af38979bab28f9b7a35a260c5" {
+		t.Fatalf("stripe SHA256SUMS sha256 = %x", got)
+	}
+	signer, err := VerifySums(sums, readTestdata(t, "stripe_0.3.0_SHA256SUMS.sig"), keys)
+	if err != nil || signer.KeyID != "A6C87736961A5EF6" {
+		t.Fatalf("stripe SHA256SUMS: signer %+v, %v", signer, err)
+	}
+	// Every embedded key file is listed for a provider.
+	files, err := keyFiles.ReadDir("keys")
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := map[string]bool{}
+	for _, names := range trustedFiles {
+		for _, n := range names {
+			listed[n] = true
+		}
+	}
+	for _, f := range files {
+		if !listed["keys/"+f.Name()] {
+			t.Errorf("keys/%s is embedded but trusted for no provider", f.Name())
 		}
 	}
 }
@@ -128,16 +169,14 @@ func TestCheckVersion(t *testing.T) {
 	}
 }
 
-// fakeRegistry serves the testdata release of example/fake 1.0.0 for linux_amd64.
+// fakeRegistry serves the testdata release of example/fake 1.0.0 for
+// linux_amd64 over TLS.
 func fakeRegistry(t *testing.T, keys ...string) (*httptest.Server, *atomic.Int32) {
 	t.Helper()
 	var zipHits atomic.Int32
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/terraform.json", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"providers.v1":"/v1/providers/"}`))
-	})
-	mux.HandleFunc("/v1/providers/example/fake/versions", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{"versions":[{"version":"1.0.0","protocols":["6.0"],"platforms":[{"os":"linux","arch":"amd64"}]}]}`))
 	})
 	mux.HandleFunc("/v1/providers/example/fake/1.0.0/download/linux/amd64", func(w http.ResponseWriter, _ *http.Request) {
 		var pkg Package
@@ -159,23 +198,32 @@ func fakeRegistry(t *testing.T, keys ...string) (*httptest.Server, *atomic.Int32
 		}
 		files.ServeHTTP(w, r)
 	}))
-	srv := httptest.NewServer(mux)
+	mux.HandleFunc("/redirect/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://"+r.Host+"/files/SHA256SUMS", http.StatusFound)
+	})
+	srv := httptest.NewTLSServer(mux)
 	t.Cleanup(srv.Close)
 	return srv, &zipHits
 }
 
+func host(srv *httptest.Server) string { return strings.TrimPrefix(srv.URL, "https://") }
+
 func newTestCache(t *testing.T, srv *httptest.Server) *Cache {
 	return &Cache{
 		Dir:    t.TempDir(),
-		Client: &Client{HTTP: srv.Client(), Scheme: "http"},
+		Client: &Client{HTTP: srv.Client(), AllowHosts: []string{host(srv)}},
 		GOOS:   "linux", GOARCH: "amd64",
 	}
+}
+
+func fakeSource(srv *httptest.Server) Source {
+	return Source{Host: host(srv), Namespace: "example", Type: "fake"}
 }
 
 func TestInstall(t *testing.T) {
 	srv, zipHits := fakeRegistry(t, "key.asc")
 	cache := newTestCache(t, srv)
-	src := Source{Host: strings.TrimPrefix(srv.URL, "http://"), Namespace: "example", Type: "fake"}
+	src := fakeSource(srv)
 	sums := sha256.Sum256(readTestdata(t, "SHA256SUMS"))
 	pin := hex.EncodeToString(sums[:])
 	ctx := context.Background()
@@ -221,17 +269,31 @@ func TestInstall(t *testing.T) {
 	if _, err := cache.Install(ctx, src, "1.0.0", pin); err == nil || !strings.Contains(err.Error(), "changed since install") {
 		t.Fatalf("err = %v", err)
 	}
+}
 
-	vs, err := cache.Client.Versions(ctx, src)
-	if err != nil || len(vs) != 1 || vs[0].Version != "1.0.0" {
-		t.Fatalf("Versions = %+v, %v", vs, err)
+func TestLockFileHonoursContext(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "x.lock")
+	unlock, err := lockFile(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := lockFile(ctx, path); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("second lock: %v", err)
+	}
+	unlock()
+	unlock2, err := lockFile(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unlock2()
 }
 
 func TestInstallRefusesUnknownSigner(t *testing.T) {
 	srv, zipHits := fakeRegistry(t, "other-key.asc")
 	cache := newTestCache(t, srv)
-	src := Source{Host: strings.TrimPrefix(srv.URL, "http://"), Namespace: "example", Type: "fake"}
+	src := fakeSource(srv)
 	if _, err := cache.Install(context.Background(), src, "1.0.0", ""); err == nil {
 		t.Fatal("installed a release signed by an unlisted key")
 	}
@@ -243,8 +305,61 @@ func TestInstallRefusesUnknownSigner(t *testing.T) {
 func TestInstallRefusesUnsigned(t *testing.T) {
 	srv, _ := fakeRegistry(t)
 	cache := newTestCache(t, srv)
-	src := Source{Host: strings.TrimPrefix(srv.URL, "http://"), Namespace: "example", Type: "fake"}
-	if _, err := cache.Install(context.Background(), src, "1.0.0", ""); !errors.Is(err, ErrNoSigningKeys) {
+	if _, err := cache.Install(context.Background(), fakeSource(srv), "1.0.0", ""); !errors.Is(err, ErrNoSigningKeys) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// A release the registry lists without keys installs when the bridge
+// trusts the signing key for that provider, and only then.
+func TestInstallTrustedKey(t *testing.T) {
+	srv, _ := fakeRegistry(t)
+	ctx := context.Background()
+
+	cache := newTestCache(t, srv)
+	cache.TrustedKeys = Keyring{"example/other": {key(t, "key.asc")}, "example/fake": {key(t, "other-key.asc")}}
+	if _, err := cache.Install(ctx, fakeSource(srv), "1.0.0", ""); err == nil || !strings.Contains(err.Error(), "not signed by any") {
+		t.Fatalf("installed with only an unrelated trusted key: %v", err)
+	}
+
+	cache = newTestCache(t, srv)
+	cache.TrustedKeys = Keyring{"example/fake": {key(t, "key.asc")}}
+	inst, err := cache.Install(ctx, fakeSource(srv), "1.0.0", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inst.SignedBy == "" {
+		t.Fatalf("installed = %+v", inst)
+	}
+}
+
+func TestHostPolicy(t *testing.T) {
+	srv, _ := fakeRegistry(t, "key.asc")
+	cache := newTestCache(t, srv)
+	cache.Client = &Client{HTTP: srv.Client()}
+	var hostErr *HostNotAllowedError
+	if _, err := cache.Install(context.Background(), fakeSource(srv), "1.0.0", ""); !errors.As(err, &hostErr) {
+		t.Fatalf("err = %v", err)
+	}
+	if err := (&Client{}).checkAllowed(DefaultHost); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHTTPSOnly(t *testing.T) {
+	srv, _ := fakeRegistry(t, "key.asc")
+	c := &Client{HTTP: srv.Client(), AllowHosts: []string{host(srv)}}
+	ctx := context.Background()
+	if _, err := c.getBytes(ctx, srv.URL+"/redirect/", maxSumsBytes); err == nil || !strings.Contains(err.Error(), "not https") {
+		t.Fatalf("redirect to http: %v", err)
+	}
+	base, _ := url.Parse(srv.URL + "/v1/providers/")
+	for _, ref := range []string{"http://example.com/x.zip", "ftp://example.com/x", "file:///etc/passwd"} {
+		if _, err := resolveHTTPS(base, ref); err == nil {
+			t.Errorf("resolveHTTPS(%q) succeeded", ref)
+		}
+	}
+	if u, err := resolveHTTPS(base, "/files/x.zip"); err != nil || u.Scheme != "https" {
+		t.Fatalf("relative URL: %v %v", u, err)
 	}
 }

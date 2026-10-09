@@ -31,7 +31,7 @@ func fetch(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	var c common
 	fs := flag.NewFlagSet("fetch", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	c.register(fs)
+	c.register(fs, false)
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -43,8 +43,7 @@ func fetch(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	cache := &registry.Cache{Dir: c.cacheDir, Client: &registry.Client{}, Logger: log}
-	inst, err := cache.Install(ctx, src, version, pin)
+	inst, err := c.cache(log).Install(ctx, src, version, pin)
 	if err != nil {
 		return err
 	}

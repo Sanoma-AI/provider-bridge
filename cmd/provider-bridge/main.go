@@ -6,9 +6,9 @@
 //
 // Usage:
 //
-//	provider-bridge [serve] --socket PATH [--cache-dir DIR] [--log-level LEVEL] [--tf-log LEVEL]
-//	provider-bridge fetch  [--cache-dir DIR] SOURCE VERSION [SHA256]
-//	provider-bridge schema [--cache-dir DIR] [--raw] SOURCE VERSION [SHA256]
+//	provider-bridge [serve] --socket PATH [--cache-dir DIR] [--allow-host HOST] [--log-level LEVEL] [--tf-log LEVEL]
+//	provider-bridge fetch  [--cache-dir DIR] [--allow-host HOST] SOURCE VERSION [SHA256]
+//	provider-bridge schema [--cache-dir DIR] [--allow-host HOST] [--raw] SOURCE VERSION [SHA256]
 //
 // serve prints one line, {"event":"ready","socket":"..."}, on stdout once it
 // accepts connections; every log line is slog JSON on stderr.
@@ -23,8 +23,10 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
+	"strings"
 	"syscall"
+
+	"github.com/Sanoma-AI/provider-bridge/internal/registry"
 )
 
 func main() {
@@ -57,15 +59,40 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 
 // common holds the flags every subcommand shares.
 type common struct {
-	cacheDir string
-	logLevel string
-	tfLog    string
+	cacheDir   string
+	logLevel   string
+	tfLog      string
+	allowHosts hostsFlag
 }
 
-func (c *common) register(fs *flag.FlagSet) {
-	fs.StringVar(&c.cacheDir, "cache-dir", defaultCacheDir(), "provider cache directory")
+// register adds the shared flags; withProviders adds the ones that only
+// matter to subcommands that start providers (--tf-log).
+func (c *common) register(fs *flag.FlagSet, withProviders bool) {
+	fs.StringVar(&c.cacheDir, "cache-dir", registry.CacheDir("provider-bridge"), "provider cache directory")
 	fs.StringVar(&c.logLevel, "log-level", "info", "log level: debug, info, warn, error")
-	fs.StringVar(&c.tfLog, "tf-log", "", "TF_LOG level passed to provider processes (e.g. debug); empty disables provider logs")
+	fs.Var(&c.allowHosts, "allow-host", "HOST: also download providers from this registry host (default: "+registry.DefaultHost+" only; repeatable)")
+	if withProviders {
+		fs.StringVar(&c.tfLog, "tf-log", "", "TF_LOG level passed to provider processes (e.g. debug); empty disables provider logs")
+	}
+}
+
+// cache returns the verified provider cache the flags describe.
+func (c *common) cache(log *slog.Logger) *registry.Cache {
+	return registry.NewCache(c.cacheDir, log, c.allowHosts)
+}
+
+// hostsFlag collects repeated --allow-host flags.
+type hostsFlag []string
+
+func (h *hostsFlag) String() string { return strings.Join(*h, ",") }
+
+func (h *hostsFlag) Set(v string) error {
+	v = strings.ToLower(v)
+	if err := registry.CheckHost(v); err != nil {
+		return err
+	}
+	*h = append(*h, v)
+	return nil
 }
 
 func (c *common) logger(stderr io.Writer) (*slog.Logger, error) {
@@ -74,14 +101,4 @@ func (c *common) logger(stderr io.Writer) (*slog.Logger, error) {
 		return nil, fmt.Errorf("--log-level: %w", err)
 	}
 	return slog.New(slog.NewJSONHandler(stderr, &slog.HandlerOptions{Level: lvl})), nil
-}
-
-func defaultCacheDir() string {
-	if d := os.Getenv("XDG_CACHE_HOME"); d != "" {
-		return filepath.Join(d, "provider-bridge")
-	}
-	if d, err := os.UserCacheDir(); err == nil {
-		return filepath.Join(d, "provider-bridge")
-	}
-	return ".provider-bridge-cache"
 }

@@ -12,14 +12,10 @@ package provider
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 
@@ -45,8 +41,8 @@ type Release struct {
 	// Source is the normalized source address.
 	Source  string
 	Version string
-	// SHA256 is the hex sha256 of the release's SHA256SUMS document (for a
-	// dev override: of the binary).
+	// SHA256 is the hex sha256 of the release's SHA256SUMS document; empty
+	// for an unverified local binary (OverrideLauncher).
 	SHA256 string
 	Binary string
 	// Dir, when set, is where the schema document is cached.
@@ -62,9 +58,9 @@ type Instance interface {
 
 // Launcher resolves releases and starts provider processes.
 type Launcher interface {
-	// Resolve installs (when absent) and verifies the release. It fails with
-	// a *registry.PinMismatchError (or any error) when ref.SHA256 differs.
-	Resolve(ctx context.Context, ref Ref) (Release, error)
+	// Resolve installs (when absent) and verifies the release of source (in
+	// short form) at version. Pins are the Manager's business.
+	Resolve(ctx context.Context, source, version string) (Release, error)
 	// Start launches the release's binary and completes the handshake.
 	Start(ctx context.Context, rel Release) (Instance, error)
 }
@@ -80,7 +76,8 @@ type Resource struct {
 // SchemaResult is a provider's schema and its identity.
 type SchemaResult struct {
 	Schema *schema.ProviderSchema
-	JSON   []byte
+	// JSON is the schema document (schema.Marshal of Schema).
+	JSON   string
 	SHA256 string
 }
 
@@ -89,12 +86,13 @@ type Manager struct {
 	launcher Launcher
 	log      *slog.Logger
 
-	// opMu serializes the slow, state-changing operations (GetSchema on a
-	// cold cache, Configure, Close) so two callers never start the same
-	// provider twice. Import and Read only take mu briefly.
-	opMu sync.Mutex
-
+	// mu guards the maps and closed; it is never held across a download,
+	// a process start or a provider call. The slow operations on one
+	// (source, version), a cold GetSchema and Configure, serialize on that
+	// key's lock instead, so one slow provider never blocks another.
 	mu         sync.Mutex
+	locks      map[string]chan struct{} // by source@version
+	releases   map[string]Release       // by source@version, resolved once
 	schemas    map[string]*SchemaResult // by source@version
 	configured map[string]*configured   // by source@version
 	closed     bool
@@ -115,6 +113,8 @@ func NewManager(launcher Launcher, log *slog.Logger) *Manager {
 	return &Manager{
 		launcher:   launcher,
 		log:        log,
+		locks:      map[string]chan struct{}{},
+		releases:   map[string]Release{},
 		schemas:    map[string]*SchemaResult{},
 		configured: map[string]*configured{},
 	}
@@ -122,6 +122,23 @@ func NewManager(launcher Launcher, log *slog.Logger) *Manager {
 
 // refKey is the map key of a normalized ref.
 func refKey(ref Ref) string { return ref.Source + "@" + ref.Version }
+
+// lock takes ref's key lock, or gives up when ctx is done.
+func (m *Manager) lock(ctx context.Context, ref Ref) (unlock func(), err error) {
+	m.mu.Lock()
+	l, ok := m.locks[refKey(ref)]
+	if !ok {
+		l = make(chan struct{}, 1)
+		m.locks[refKey(ref)] = l
+	}
+	m.mu.Unlock()
+	select {
+	case l <- struct{}{}:
+		return func() { <-l }, nil
+	case <-ctx.Done():
+		return nil, newError(CodeUnavailable, fmt.Sprintf("%s: waiting for another call", ref), ctx.Err())
+	}
+}
 
 // normalize validates ref and spells its source in short form, so
 // "registry.opentofu.org/hashicorp/null" and "hashicorp/null" share state.
@@ -141,13 +158,6 @@ func normalize(ref Ref) (Ref, error) {
 	return ref, nil
 }
 
-func checkPin(ref Ref, sha string) error {
-	if ref.SHA256 != "" && ref.SHA256 != sha {
-		return newError(CodeFailedPrecondition, fmt.Sprintf("%s: SHA256SUMS sha256 is %s, request pins %s", ref, sha, ref.SHA256), nil)
-	}
-	return nil
-}
-
 // Schema returns the provider's schema, from memory, from the schema cached
 // in the release's cache directory, or by starting an unconfigured instance.
 func (m *Manager) Schema(ctx context.Context, ref Ref) (*SchemaResult, error) {
@@ -156,98 +166,63 @@ func (m *Manager) Schema(ctx context.Context, ref Ref) (*SchemaResult, error) {
 		return nil, err
 	}
 	m.mu.Lock()
-	cached := m.schemas[refKey(ref)]
+	res := m.schemas[refKey(ref)]
 	m.mu.Unlock()
-	if cached != nil {
-		return cached, checkPin(ref, cached.SHA256)
+	if res != nil {
+		if _, err := m.resolve(ctx, ref); err != nil {
+			return nil, err
+		}
+		return res, nil
 	}
 
-	m.opMu.Lock()
-	defer m.opMu.Unlock()
-	m.mu.Lock()
-	cached = m.schemas[refKey(ref)]
-	m.mu.Unlock()
-	if cached != nil {
-		return cached, checkPin(ref, cached.SHA256)
+	unlock, err := m.lock(ctx, ref)
+	if err != nil {
+		return nil, err
 	}
-
+	defer unlock()
 	rel, err := m.resolve(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
-	res, err := m.loadSchemaFile(rel)
-	if err != nil {
-		inst, err := m.start(ctx, rel)
-		if err != nil {
-			return nil, err
-		}
-		s, diags, err := inst.GetSchema(ctx)
-		inst.Kill()
-		if err != nil {
-			return nil, newError(CodeUnavailable, fmt.Sprintf("%s: get schema", ref), err)
-		}
-		if diags.HasErrors() {
-			return nil, diagError(CodeFailedPrecondition, fmt.Sprintf("%s: get schema", ref), diags)
-		}
-		if res, err = m.storeSchema(rel, s); err != nil {
-			return nil, err
-		}
+	// Another caller may have fetched it while this one waited.
+	if res := m.knownSchema(rel); res != nil {
+		return res, nil
 	}
-	m.mu.Lock()
-	m.schemas[refKey(ref)] = res
-	m.mu.Unlock()
-	return res, nil
-}
-
-// schemaCacheFile names the on-disk schema cache. Bump the revision
-// whenever the conversion into the schema document changes, so caches
-// written by an older bridge are ignored rather than served.
-const schemaCacheFile = "schema.r1.json"
-
-func (m *Manager) loadSchemaFile(rel Release) (*SchemaResult, error) {
-	if rel.Dir == "" {
-		return nil, os.ErrNotExist
-	}
-	b, err := os.ReadFile(filepath.Join(rel.Dir, schemaCacheFile))
+	inst, err := m.start(ctx, rel)
 	if err != nil {
 		return nil, err
 	}
-	s, err := schema.Unmarshal(b)
-	if err != nil || s.Source != rel.Source || s.Version != rel.Version {
-		m.log.Warn("ignoring invalid cached schema", "dir", rel.Dir, "error", err)
-		return nil, os.ErrNotExist
-	}
-	return &SchemaResult{Schema: s, JSON: b, SHA256: rel.SHA256}, nil
-}
-
-// storeSchema stamps the schema with its release and caches it on disk.
-func (m *Manager) storeSchema(rel Release, s *schema.ProviderSchema) (*SchemaResult, error) {
-	stamped := *s
-	stamped.Source, stamped.Version = rel.Source, rel.Version
-	b, err := schema.Marshal(&stamped)
+	s, diags, err := inst.GetSchema(ctx)
+	inst.Kill()
 	if err != nil {
-		return nil, newError(CodeInternal, "marshal schema", err)
+		return nil, newError(CodeUnavailable, fmt.Sprintf("%s: get schema", ref), err)
 	}
-	if rel.Dir != "" {
-		tmp := filepath.Join(rel.Dir, fmt.Sprintf(".%s.%d", schemaCacheFile, os.Getpid()))
-		werr := os.WriteFile(tmp, b, 0o644)
-		if werr == nil {
-			werr = os.Rename(tmp, filepath.Join(rel.Dir, schemaCacheFile))
-		}
-		if werr != nil {
-			m.log.Warn("cache schema", "dir", rel.Dir, "error", werr)
-		}
+	if diags.HasErrors() {
+		return nil, diagError(CodeFailedPrecondition, fmt.Sprintf("%s: get schema", ref), diags)
 	}
-	return &SchemaResult{Schema: &stamped, JSON: b, SHA256: rel.SHA256}, nil
+	return m.storeSchema(rel, s)
 }
 
+// resolve returns the verified release of ref, resolved (installed and
+// hashed) once per Manager, and refuses it when ref pins another
+// SHA256SUMS. It is the one place a request's pin is checked.
 func (m *Manager) resolve(ctx context.Context, ref Ref) (Release, error) {
-	rel, err := m.launcher.Resolve(ctx, ref)
-	if err != nil {
-		return Release{}, newError(CodeFailedPrecondition, fmt.Sprintf("%s: resolve provider", ref), err)
+	key := refKey(ref)
+	m.mu.Lock()
+	rel, ok := m.releases[key]
+	m.mu.Unlock()
+	if !ok {
+		var err error
+		if rel, err = m.launcher.Resolve(ctx, ref.Source, ref.Version); err != nil {
+			return Release{}, newError(CodeFailedPrecondition, fmt.Sprintf("%s: resolve provider", ref), err)
+		}
+		m.mu.Lock()
+		m.releases[key] = rel
+		m.mu.Unlock()
 	}
-	if err := checkPin(ref, rel.SHA256); err != nil {
-		return Release{}, err
+	if ref.SHA256 != "" && ref.SHA256 != rel.SHA256 {
+		return Release{}, newError(CodeFailedPrecondition, "refusing release",
+			&registry.PinMismatchError{Source: rel.Source, Version: rel.Version, Want: ref.SHA256, Got: rel.SHA256})
 	}
 	return rel, nil
 }
@@ -261,10 +236,7 @@ func (m *Manager) start(ctx context.Context, rel Release) (Instance, error) {
 }
 
 // ConfigHash identifies a provider configuration without revealing it.
-func ConfigHash(configJSON string) string {
-	sum := sha256.Sum256([]byte(configJSON))
-	return hex.EncodeToString(sum[:])
-}
+func ConfigHash(configJSON string) string { return registry.SHA256Hex([]byte(configJSON)) }
 
 // Configure starts and configures the provider. It is idempotent for the
 // same config; another config for the same (source, version) fails until
@@ -280,13 +252,22 @@ func (m *Manager) Configure(ctx context.Context, ref Ref, configJSON string) (tf
 	hash := ConfigHash(configJSON)
 	log := m.log.With("provider", ref.Source, "version", ref.Version, "config_sha256", hash)
 
-	m.opMu.Lock()
-	defer m.opMu.Unlock()
+	unlock, err := m.lock(ctx, ref)
+	if err != nil {
+		return nil, "", err
+	}
+	defer unlock()
 	m.mu.Lock()
-	if m.closed {
-		m.mu.Unlock()
+	closed := m.closed
+	m.mu.Unlock()
+	if closed {
 		return nil, "", newError(CodeUnavailable, "bridge is shutting down", nil)
 	}
+	rel, err := m.resolve(ctx, ref)
+	if err != nil {
+		return nil, "", err
+	}
+	m.mu.Lock()
 	cur := m.configured[refKey(ref)]
 	m.mu.Unlock()
 	if cur != nil {
@@ -297,17 +278,20 @@ func (m *Manager) Configure(ctx context.Context, ref Ref, configJSON string) (tf
 		case cur.configHash != hash:
 			return nil, "", newError(CodeFailedPrecondition, fmt.Sprintf("%s is already configured with a different config; Close it first", ref), nil)
 		default:
-			return nil, cur.rel.SHA256, checkPin(ref, cur.rel.SHA256)
+			return nil, rel.SHA256, nil
 		}
 	}
 
-	rel, err := m.resolve(ctx, ref)
-	if err != nil {
-		return nil, "", err
-	}
 	inst, err := m.start(ctx, rel)
 	if err != nil {
 		return nil, "", err
+	}
+	known := m.knownSchema(rel)
+	if known != nil {
+		if err := inst.SetSchema(known.Schema); err != nil {
+			inst.Kill()
+			return nil, "", newError(CodeInternal, fmt.Sprintf("%s: seed schema", ref), err)
+		}
 	}
 	c, warnings, err := m.configure(ctx, ref, rel, inst, configJSON)
 	if err != nil {
@@ -316,13 +300,18 @@ func (m *Manager) Configure(ctx context.Context, ref Ref, configJSON string) (tf
 	}
 	c.configHash = hash
 	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		inst.Kill()
+		return nil, "", newError(CodeUnavailable, "bridge is shutting down", nil)
+	}
 	m.configured[refKey(ref)] = c
-	if m.schemas[refKey(ref)] == nil {
-		if res, err := m.storeSchema(rel, c.schema); err == nil {
-			m.schemas[refKey(ref)] = res
+	m.mu.Unlock()
+	if known == nil {
+		if _, err := m.storeSchema(rel, c.schema); err != nil {
+			log.Warn("cannot cache the schema", "error", err)
 		}
 	}
-	m.mu.Unlock()
 	log.Info("provider configured", "protocol", inst.Protocol())
 	return warnings, rel.SHA256, nil
 }
@@ -366,7 +355,7 @@ func (m *Manager) configure(ctx context.Context, ref Ref, rel Release, inst Inst
 }
 
 // instance returns the configured, live instance for ref.
-func (m *Manager) instance(ref Ref) (Ref, *configured, error) {
+func (m *Manager) instance(ctx context.Context, ref Ref) (Ref, *configured, error) {
 	ref, err := normalize(ref)
 	if err != nil {
 		return ref, nil, err
@@ -377,11 +366,15 @@ func (m *Manager) instance(ref Ref) (Ref, *configured, error) {
 	if c == nil {
 		return ref, nil, newError(CodeFailedPrecondition, fmt.Sprintf("%s is not configured; call Configure first", ref), nil)
 	}
+	// Configure resolved the release, so this only checks the pin.
+	if _, err := m.resolve(ctx, ref); err != nil {
+		return ref, nil, err
+	}
 	if c.inst.Exited() {
 		m.remove(refKey(ref), c)
 		return ref, nil, newError(CodeUnavailable, fmt.Sprintf("%s: provider exited; configure again", ref), nil)
 	}
-	return ref, c, checkPin(ref, c.rel.SHA256)
+	return ref, c, nil
 }
 
 func (m *Manager) remove(key string, c *configured) {
@@ -397,7 +390,7 @@ func (m *Manager) remove(key string, c *configured) {
 func (m *Manager) callErr(ref Ref, c *configured, what string, err error) error {
 	var unknown *tfproto.UnknownTypeError
 	if errors.As(err, &unknown) {
-		return newError(CodeInvalidArgument, err.Error(), nil)
+		return newError(CodeInvalidArgument, "", err)
 	}
 	if c.inst.Exited() {
 		m.remove(refKey(ref), c)
@@ -407,9 +400,10 @@ func (m *Manager) callErr(ref Ref, c *configured, what string, err error) error 
 }
 
 // Import imports the object with the given ID and reads it. A provider may
-// return several resources for one ID; each is read.
+// return several resources for one ID; they are read concurrently and
+// returned in the provider's order.
 func (m *Manager) Import(ctx context.Context, ref Ref, typeName, id string) ([]Resource, tfproto.Diagnostics, error) {
-	ref, c, err := m.instance(ref)
+	ref, c, err := m.instance(ctx, ref)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -427,45 +421,86 @@ func (m *Manager) Import(ctx context.Context, ref Ref, typeName, id string) ([]R
 	if len(imported) == 0 {
 		return nil, nil, newError(CodeNotFound, fmt.Sprintf("import %s %q: provider returned no object", typeName, id), nil)
 	}
-	out := make([]Resource, 0, len(imported))
-	for _, ir := range imported {
-		res, gone, rdiags, err := m.read(ctx, ref, c, ir.TypeName, ir.State, ir.Private)
-		warnings = append(warnings, rdiags...)
-		if err != nil {
-			return nil, nil, err
+	type readResult struct {
+		res   Resource
+		gone  bool
+		diags tfproto.Diagnostics
+		err   error
+	}
+	results := make([]readResult, len(imported))
+	var wg sync.WaitGroup
+	for i, ir := range imported {
+		r, ok := c.schema.Resource(ir.TypeName)
+		if !ok { // the client checks imported types; this is a bug guard
+			return nil, nil, newError(CodeInternal, "import", &tfproto.UnknownTypeError{TypeName: ir.TypeName})
 		}
-		if gone {
+		wg.Go(func() {
+			res, gone, diags, err := m.read(ctx, ref, c, r, ir.TypeName, ir.State, ir.Private)
+			results[i] = readResult{res, gone, diags, err}
+		})
+	}
+	wg.Wait()
+	out := make([]Resource, 0, len(imported))
+	for _, rr := range results {
+		warnings = append(warnings, rr.diags...)
+		if rr.err != nil {
+			return nil, nil, rr.err
+		}
+		if rr.gone {
 			return nil, nil, newError(CodeNotFound, fmt.Sprintf("import %s %q: cannot import non-existent remote object", typeName, id), nil)
 		}
-		out = append(out, res)
+		out = append(out, rr.res)
 	}
 	return out, warnings, nil
 }
 
-// Read refreshes one resource. gone reports that the object no longer exists.
-func (m *Manager) Read(ctx context.Context, ref Ref, typeName string, stateJSON []byte, private []byte) (Resource, bool, tfproto.Diagnostics, error) {
-	ref, c, err := m.instance(ref)
+// Read refreshes one resource. gone reports that the object no longer
+// exists. When schemaVersion is set, stateJSON was written with that schema
+// version and the provider upgrades it (UpgradeResourceState) before the
+// read, as OpenTofu does on every refresh; otherwise stateJSON must be of
+// the current implied type.
+func (m *Manager) Read(ctx context.Context, ref Ref, typeName string, stateJSON, private []byte, schemaVersion *int64) (Resource, bool, tfproto.Diagnostics, error) {
+	ref, c, err := m.instance(ctx, ref)
 	if err != nil {
 		return Resource{}, false, nil, err
 	}
 	r, ok := c.schema.Resource(typeName)
 	if !ok {
-		return Resource{}, false, nil, newError(CodeInvalidArgument, fmt.Sprintf("provider has no resource type %q", typeName), nil)
+		return Resource{}, false, nil, newError(CodeInvalidArgument, "", &tfproto.UnknownTypeError{TypeName: typeName})
 	}
-	state, err := values.FromJSON(stateJSON, r.Block.ImpliedType())
-	if err != nil {
-		return Resource{}, false, nil, newError(CodeInvalidArgument, "state_json", err)
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(stateJSON, &obj); err != nil || obj == nil {
+		return Resource{}, false, nil, newError(CodeInvalidArgument, "state_json must be a JSON object", err)
 	}
-	if state.IsNull() {
-		return Resource{}, false, nil, newError(CodeInvalidArgument, "state_json must be a JSON object", nil)
+	var state cty.Value
+	var warnings tfproto.Diagnostics
+	if schemaVersion != nil {
+		var diags tfproto.Diagnostics
+		state, diags, err = c.inst.UpgradeResourceState(ctx, typeName, *schemaVersion, stateJSON)
+		if err != nil {
+			return Resource{}, false, nil, m.callErr(ref, c, "upgrade state", err)
+		}
+		if diags.HasErrors() {
+			return Resource{}, false, nil, diagError(CodeFailedPrecondition, fmt.Sprintf("upgrade %s state from schema version %d", typeName, *schemaVersion), diags)
+		}
+		warnings = diags.Warnings()
+		if state.IsNull() {
+			return Resource{}, false, nil, newError(CodeFailedPrecondition, fmt.Sprintf("upgrade %s state: provider returned no state", typeName), nil)
+		}
+	} else {
+		if state, err = values.FromJSON(stateJSON, r.Block.ImpliedType()); err != nil {
+			return Resource{}, false, nil, newError(CodeInvalidArgument, "state_json", err)
+		}
+		if state, err = schema.CoerceConfig(r.Block, state); err != nil {
+			return Resource{}, false, nil, newError(CodeInvalidArgument, "state_json", err)
+		}
 	}
-	if state, err = schema.CoerceConfig(r.Block, state); err != nil {
-		return Resource{}, false, nil, newError(CodeInvalidArgument, "state_json", err)
-	}
-	return m.read(ctx, ref, c, typeName, state, private)
+	res, gone, diags, err := m.read(ctx, ref, c, r, typeName, state, private)
+	return res, gone, append(warnings, diags...), err
 }
 
-func (m *Manager) read(ctx context.Context, ref Ref, c *configured, typeName string, state cty.Value, private []byte) (Resource, bool, tfproto.Diagnostics, error) {
+// read calls ReadResource; r is typeName's schema.
+func (m *Manager) read(ctx context.Context, ref Ref, c *configured, r *schema.Resource, typeName string, state cty.Value, private []byte) (Resource, bool, tfproto.Diagnostics, error) {
 	newState, newPrivate, diags, err := c.inst.ReadResource(ctx, typeName, state, private)
 	if err != nil {
 		return Resource{}, false, nil, m.callErr(ref, c, "read", err)
@@ -476,7 +511,6 @@ func (m *Manager) read(ctx context.Context, ref Ref, c *configured, typeName str
 	if newState.IsNull() {
 		return Resource{}, true, diags.Warnings(), nil
 	}
-	r, _ := c.schema.Resource(typeName)
 	b, err := values.ToJSON(newState, r.Block.ImpliedType())
 	if err != nil {
 		return Resource{}, false, nil, newError(CodeInternal, fmt.Sprintf("read %s: encode state", typeName), err)
@@ -485,34 +519,38 @@ func (m *Manager) read(ctx context.Context, ref Ref, c *configured, typeName str
 }
 
 // Close stops the configured instance of ref, or every instance when ref is
-// nil. Closing an unconfigured provider is not an error.
-func (m *Manager) Close(ref *Ref) {
-	if ref != nil {
-		if r, err := normalize(*ref); err == nil {
-			ref = &r
+// the zero Ref. Closing an unconfigured provider is not an error.
+func (m *Manager) Close(ref Ref) {
+	all := ref == Ref{}
+	if !all {
+		if r, err := normalize(ref); err == nil {
+			ref = r
 		}
 	}
-	m.opMu.Lock()
-	defer m.opMu.Unlock()
 	m.mu.Lock()
 	var victims []*configured
 	for key, c := range m.configured {
-		if ref == nil || key == refKey(*ref) {
+		if all || key == refKey(ref) {
 			victims = append(victims, c)
 			delete(m.configured, key)
 		}
 	}
 	m.mu.Unlock()
+	var wg sync.WaitGroup
 	for _, c := range victims {
-		c.inst.Kill()
-		m.log.Info("provider closed", "provider", c.rel.Source, "version", c.rel.Version)
+		wg.Go(func() {
+			c.inst.Kill()
+			m.log.Info("provider closed", "provider", c.rel.Source, "version", c.rel.Version)
+		})
 	}
+	wg.Wait()
 }
 
-// Shutdown closes every instance and refuses new Configure calls.
+// Shutdown closes every instance and refuses new Configure calls; a
+// Configure already under way kills its instance instead of keeping it.
 func (m *Manager) Shutdown() {
 	m.mu.Lock()
 	m.closed = true
 	m.mu.Unlock()
-	m.Close(nil)
+	m.Close(Ref{})
 }

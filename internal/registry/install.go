@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -55,8 +56,27 @@ type Cache struct {
 	Dir    string
 	Client *Client
 	Logger *slog.Logger
+	// TrustedKeys are signing keys accepted for a provider besides those the
+	// registry lists for the release.
+	TrustedKeys Keyring
 	// GOOS and GOARCH default to the running platform.
 	GOOS, GOARCH string
+}
+
+// CacheDir is the directory name in the user's cache directory
+// (os.UserCacheDir: $XDG_CACHE_HOME or ~/.cache on Linux, ~/Library/Caches
+// on macOS), or ".name" in the working directory when there is none.
+func CacheDir(name string) string {
+	if d, err := os.UserCacheDir(); err == nil {
+		return filepath.Join(d, name)
+	}
+	return "." + name
+}
+
+// NewCache returns a cache in dir that downloads from DefaultHost and
+// allowHosts and trusts the bridge's built-in keys (TrustedKeys).
+func NewCache(dir string, log *slog.Logger, allowHosts []string) *Cache {
+	return &Cache{Dir: dir, Client: &Client{AllowHosts: allowHosts}, Logger: log, TrustedKeys: TrustedKeys()}
 }
 
 func (c *Cache) logger() *slog.Logger {
@@ -83,6 +103,9 @@ type PinMismatchError struct {
 }
 
 func (e *PinMismatchError) Error() string {
+	if e.Got == "" {
+		return fmt.Sprintf("%s %s: unverified local binary (no SHA256SUMS), pinned %s", e.Source, e.Version, e.Want)
+	}
 	return fmt.Sprintf("%s %s: SHA256SUMS sha256 is %s, pinned %s", e.Source, e.Version, e.Got, e.Want)
 }
 
@@ -99,7 +122,7 @@ func (c *Cache) Install(ctx context.Context, src Source, version, pin string) (*
 	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
 		return nil, err
 	}
-	unlock, err := lockFile(dir + ".lock")
+	unlock, err := lockFile(ctx, dir+".lock")
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +183,8 @@ func (c *Cache) download(ctx context.Context, src Source, version, goos, goarch,
 	if err != nil {
 		return nil, fmt.Errorf("download SHA256SUMS signature: %w", err)
 	}
-	signer, err := VerifySums(sums, sig, pkg.SigningKeys.GPGPublicKeys)
+	keys := append(slices.Clone(pkg.SigningKeys.GPGPublicKeys), c.TrustedKeys.For(src)...)
+	signer, err := VerifySums(sums, sig, keys)
 	if err != nil {
 		return nil, fmt.Errorf("%s %s: %w", src, version, err)
 	}
@@ -198,14 +222,13 @@ func (c *Cache) download(ctx context.Context, src Source, version, goos, goarch,
 	if err != nil {
 		return nil, fmt.Errorf("%s %s: %w", src, version, err)
 	}
-	sumsSum := sha256.Sum256(sums)
 	inst := &Installed{
 		Source:       src.String(),
 		Version:      version,
 		OS:           goos,
 		Arch:         goarch,
 		Protocols:    pkg.Protocols,
-		SumsSHA256:   hex.EncodeToString(sumsSum[:]),
+		SumsSHA256:   SHA256Hex(sums),
 		ZipSHA256:    got,
 		BinarySHA256: binSum,
 		SignedBy:     signer.KeyID,
@@ -243,8 +266,7 @@ func (c *Cache) downloadFile(ctx context.Context, rawURL, path string) (string, 
 	if err != nil {
 		return "", err
 	}
-	h := sha256.New()
-	n, err := io.Copy(io.MultiWriter(f, h), io.LimitReader(resp.Body, maxZipBytes+1))
+	n, sum, err := sha256Copy(f, io.LimitReader(resp.Body, maxZipBytes+1))
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
@@ -254,7 +276,7 @@ func (c *Cache) downloadFile(ctx context.Context, rawURL, path string) (string, 
 	if n > maxZipBytes {
 		return "", fmt.Errorf("larger than %d bytes", maxZipBytes)
 	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+	return sum, nil
 }
 
 // extractProvider copies the single terraform-provider-<type>* executable at
@@ -295,8 +317,7 @@ func extractProvider(zipPath, typ, dir string) (name, sum string, err error) {
 	if err != nil {
 		return "", "", err
 	}
-	h := sha256.New()
-	n, err := io.Copy(io.MultiWriter(out, h), io.LimitReader(rc, maxZipBytes+1))
+	n, sum, err := sha256Copy(out, io.LimitReader(rc, maxZipBytes+1))
 	if cerr := out.Close(); err == nil {
 		err = cerr
 	}
@@ -306,7 +327,21 @@ func extractProvider(zipPath, typ, dir string) (name, sum string, err error) {
 	if n > maxZipBytes {
 		return "", "", fmt.Errorf("zip entry %s is larger than %d bytes", found.Name, maxZipBytes)
 	}
-	return found.Name, hex.EncodeToString(h.Sum(nil)), nil
+	return found.Name, sum, nil
+}
+
+// SHA256Hex returns the hex sha256 of b.
+func SHA256Hex(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
+// sha256Copy copies src to dst and returns the byte count and the hex
+// sha256 of what it copied.
+func sha256Copy(dst io.Writer, src io.Reader) (int64, string, error) {
+	h := sha256.New()
+	n, err := io.Copy(io.MultiWriter(dst, h), src)
+	return n, hex.EncodeToString(h.Sum(nil)), err
 }
 
 // FileSHA256 returns the hex sha256 of the file at path.
@@ -316,21 +351,32 @@ func FileSHA256(path string) (string, error) {
 		return "", err
 	}
 	defer func() { _ = f.Close() }()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+	_, sum, err := sha256Copy(io.Discard, f)
+	return sum, err
 }
 
-func lockFile(path string) (func(), error) {
+// lockFile takes an exclusive flock on path, polling with backoff so that
+// waiting for another bridge's install gives up when ctx is done.
+func lockFile(ctx context.Context, path string) (func(), error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
-		_ = f.Close()
-		return nil, fmt.Errorf("lock %s: %w", path, err)
+	for delay := 10 * time.Millisecond; ; delay = min(2*delay, time.Second) {
+		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EINTR) {
+			_ = f.Close()
+			return nil, fmt.Errorf("lock %s: %w", path, err)
+		}
+		select {
+		case <-ctx.Done():
+			_ = f.Close()
+			return nil, fmt.Errorf("lock %s: %w", path, ctx.Err())
+		case <-time.After(delay):
+		}
 	}
 	return func() {
 		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)

@@ -12,9 +12,9 @@ Provider releases tests and the recorder may download, each pinned by the sha256
 | --- | --- | --- | --- |
 | `hashicorp/null` | 3.3.2 | 5 | integration tests (no credentials) |
 | `integrations/github` | 6.13.0 | 5 (SDKv2) | recorded fixtures |
-| `registry.terraform.io/stripe/stripe` | 0.3.0 | 6 (Plugin Framework) | recorded schema |
+| `stripe/stripe` | 0.3.0 | 6 (Plugin Framework) | recorded schema |
 
-Stripe is fetched from `registry.terraform.io` because `registry.opentofu.org` lists no signing key for `stripe/stripe` 0.3.0 and the bridge refuses unsigned releases; `registry.terraform.io` lists key `A6C87736961A5EF6`, and both registries point at the same GitHub release assets (same `SHA256SUMS`).
+Every provider comes from `registry.opentofu.org`. It lists no signing key for `stripe/stripe` 0.3.0, so the bridge verifies that release's `SHA256SUMS` (the GitHub release's own file, which the registry points at) against Stripe's key `A6C87736961A5EF6`, shipped in [`internal/registry/keys/`](../internal/registry/keys/README.md) with its provenance; the bridge still refuses a release no key signs.
 
 ### `schemas/`
 

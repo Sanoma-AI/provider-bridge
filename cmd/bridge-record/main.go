@@ -10,7 +10,7 @@
 //	  --import github_repository=provider-bridge \
 //	  --import github_branch_protection=provider-bridge:main
 //
-//	bridge-record --provider registry.terraform.io/stripe/stripe --version 0.3.0 --schema-only
+//	bridge-record --provider stripe/stripe --version 0.3.0 --schema-only
 //
 // It writes testdata/schemas/<ns>_<type>_<version>.json and
 // testdata/replies/<ns>_<type>_<version>/<resource type>/<id>/{import,read}.json.
@@ -45,6 +45,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	bridgev1 "github.com/Sanoma-AI/provider-bridge/gen/bridge/v1"
+	"github.com/Sanoma-AI/provider-bridge/internal/pins"
 	"github.com/Sanoma-AI/provider-bridge/internal/provider"
 	"github.com/Sanoma-AI/provider-bridge/internal/registry"
 	"github.com/Sanoma-AI/provider-bridge/internal/schema"
@@ -87,7 +88,7 @@ func run(args []string) error {
 	fs.Var(&o.imports, "import", "TYPE=ID: import and read one resource (repeatable)")
 	fs.Var(&o.scrub, "scrub", "TYPE.PATH: also scrub this attribute path (repeatable)")
 	fs.StringVar(&o.out, "out", "testdata", "testdata directory")
-	fs.StringVar(&o.cacheDir, "cache-dir", defaultCacheDir(), "provider cache directory")
+	fs.StringVar(&o.cacheDir, "cache-dir", registry.CacheDir("provider-bridge-test"), "provider cache directory (the tests' cache)")
 	fs.BoolVar(&o.schemaOnly, "schema-only", false, "record the schema only (needs no credentials)")
 	fs.StringVar(&o.tfLog, "tf-log", "", "TF_LOG level for the provider")
 	if err := fs.Parse(args); err != nil {
@@ -101,25 +102,19 @@ func run(args []string) error {
 	return record(ctx, &o)
 }
 
-func defaultCacheDir() string {
-	if d := os.Getenv("XDG_CACHE_HOME"); d != "" {
-		return filepath.Join(d, "provider-bridge-test")
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".cache", "provider-bridge-test")
-	}
-	return ".provider-bridge-cache"
-}
-
 type recorder struct {
 	o        *options
 	svc      *server.Service
-	ref      *bridgev1.ProviderRef
 	info     providerInfo
 	schema   *schema.ProviderSchema
 	secrets  map[string]string // env name -> value
 	scrubber *scrubber
 	dir      string
+}
+
+// ref is the provider every request names: the recorded release, pinned.
+func (r *recorder) ref() *bridgev1.ProviderRef {
+	return &bridgev1.ProviderRef{Source: r.info.Source, Version: r.info.Version, Sha256: r.info.SHA256}
 }
 
 type providerInfo struct {
@@ -142,11 +137,17 @@ func record(ctx context.Context, o *options) error {
 		return err
 	}
 	if o.pin == "" {
-		o.pin = pinFromFile(filepath.Join(o.out, "pins.json"), src.String(), o.version)
+		all, err := pins.Read(filepath.Join(o.out, "pins.json"))
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if p, ok := all[src.String()]; ok && p.Version == o.version {
+			o.pin = p.SHA256
+		}
 	}
 	log := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	launcher := &provider.RegistryLauncher{
-		Cache:  &registry.Cache{Dir: o.cacheDir, Client: &registry.Client{}, Logger: log},
+		Cache:  registry.NewCache(o.cacheDir, log, nil),
 		Logger: log,
 		TFLog:  o.tfLog,
 	}
@@ -156,19 +157,18 @@ func record(ctx context.Context, o *options) error {
 	r := &recorder{
 		o:        o,
 		svc:      server.NewService(m),
-		ref:      &bridgev1.ProviderRef{Source: src.String(), Version: o.version, Sha256: o.pin},
+		info:     providerInfo{Source: src.String(), Version: o.version, SHA256: o.pin},
 		secrets:  map[string]string{},
 		scrubber: newScrubber(o.scrub),
 	}
 	name := src.Namespace + "_" + src.Type + "_" + o.version
 	r.dir = filepath.Join(o.out, "replies", name)
 
-	sres, err := r.svc.GetSchema(ctx, connect.NewRequest(&bridgev1.GetSchemaRequest{Provider: r.ref}))
+	sres, err := r.svc.GetSchema(ctx, connect.NewRequest(&bridgev1.GetSchemaRequest{Provider: r.ref()}))
 	if err != nil {
 		return fmt.Errorf("GetSchema: %w", err)
 	}
-	r.ref.Sha256 = sres.Msg.GetSha256()
-	r.info = providerInfo{Source: src.String(), Version: o.version, SHA256: r.ref.Sha256, Protocol: sres.Msg.GetProtocol()}
+	r.info.SHA256, r.info.Protocol = sres.Msg.GetSha256(), sres.Msg.GetProtocol()
 	if r.schema, err = schema.Unmarshal([]byte(sres.Msg.GetSchemaJson())); err != nil {
 		return err
 	}
@@ -185,7 +185,7 @@ func record(ctx context.Context, o *options) error {
 	if err != nil {
 		return err
 	}
-	if _, err := r.svc.Configure(ctx, connect.NewRequest(&bridgev1.ConfigureRequest{Provider: r.ref, ConfigJson: cfg})); err != nil {
+	if _, err := r.svc.Configure(ctx, connect.NewRequest(&bridgev1.ConfigureRequest{Provider: r.ref(), ConfigJson: cfg})); err != nil {
 		return fmt.Errorf("configure: %w", r.scrubErr(err))
 	}
 	for _, imp := range o.imports {
@@ -198,23 +198,6 @@ func record(ctx context.Context, o *options) error {
 		}
 	}
 	return nil
-}
-
-// pinFromFile returns the pin testdata/pins.json records for source at
-// version, or "".
-func pinFromFile(path, source, version string) string {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	var pins map[string]struct{ Version, SHA256 string }
-	if json.Unmarshal(b, &pins) != nil {
-		return ""
-	}
-	if p, ok := pins[source]; ok && p.Version == version {
-		return p.SHA256
-	}
-	return ""
 }
 
 // config merges --config with --config-env values.
@@ -242,7 +225,7 @@ func (r *recorder) config() (string, error) {
 func (r *recorder) importAndRead(ctx context.Context, typeName, id string) error {
 	dir := filepath.Join(r.dir, typeName, slug(id))
 	r.scrubber.Reset()
-	req := &bridgev1.ImportRequest{Provider: r.ref, TypeName: typeName, Id: id}
+	req := &bridgev1.ImportRequest{Provider: r.ref(), TypeName: typeName, Id: id}
 	res, err := r.svc.Import(ctx, connect.NewRequest(req))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "import %s %s: %v\n", typeName, id, r.scrubErr(err))
@@ -259,7 +242,7 @@ func (r *recorder) importAndRead(ctx context.Context, typeName, id string) error
 		return err
 	}
 	for i, rs := range res.Msg.GetResources() {
-		rreq := &bridgev1.ReadRequest{Provider: r.ref, TypeName: rs.GetTypeName(), StateJson: rs.GetStateJson(), Private: rs.GetPrivate()}
+		rreq := &bridgev1.ReadRequest{Provider: r.ref(), TypeName: rs.GetTypeName(), StateJson: rs.GetStateJson(), Private: rs.GetPrivate()}
 		rres, rerr := r.svc.Read(ctx, connect.NewRequest(rreq))
 		recReq := proto.Clone(rreq).(*bridgev1.ReadRequest)
 		recReq.StateJson = scrubbed.GetResources()[i].GetStateJson()

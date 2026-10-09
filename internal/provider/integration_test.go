@@ -39,17 +39,22 @@ func TestIntegrationNull(t *testing.T) {
 	if res.Schema.Protocol != 5 || res.SHA256 != ref.SHA256 {
 		t.Fatalf("protocol %d sha %s", res.Schema.Protocol, res.SHA256)
 	}
-	testutil.Golden(t, filepath.Join(testutil.RepoRoot(t), "testdata", "schemas", "hashicorp_null_3.3.2.json"), res.JSON)
+	testutil.Golden(t, filepath.Join(testutil.RepoRoot(t), "testdata", "schemas", "hashicorp_null_3.3.2.json"), []byte(res.JSON))
 
 	if _, _, err := m.Configure(ctx, ref, `{}`); err != nil {
 		t.Fatal(err)
 	}
-	got, gone, _, err := m.Read(ctx, ref, "null_resource", []byte(`{"id":"123","triggers":{"a":"b"}}`), nil)
+	got, gone, _, err := m.Read(ctx, ref, "null_resource", []byte(`{"id":"123","triggers":{"a":"b"}}`), nil, nil)
 	if err != nil || gone {
 		t.Fatalf("read: %v gone=%v", err, gone)
 	}
 	if string(got.State) != `{"id":"123","triggers":{"a":"b"}}` {
 		t.Fatalf("state = %s", got.State)
+	}
+	// The same read through UpgradeResourceState (SDKv2 parses the raw JSON).
+	upgraded, _, _, err := m.Read(ctx, ref, "null_resource", []byte(`{"id":"123","triggers":{"a":"b"}}`), nil, &got.SchemaVersion)
+	if err != nil || string(upgraded.State) != string(got.State) {
+		t.Fatalf("read with schema version: %s %v", upgraded.State, err)
 	}
 
 	// null_resource has no importer: the error diagnostic surfaces.
@@ -77,7 +82,7 @@ func TestIntegrationTestProvider(t *testing.T) {
 	if res.Schema.Protocol != 6 {
 		t.Fatalf("protocol %d", res.Schema.Protocol)
 	}
-	testutil.Golden(t, filepath.Join(testutil.RepoRoot(t), "testdata", "schemas", "sanoma_testprov_0.0.1.json"), res.JSON)
+	testutil.Golden(t, filepath.Join(testutil.RepoRoot(t), "testdata", "schemas", "sanoma_testprov_0.0.1.json"), []byte(res.JSON))
 
 	_, _, err = m.Configure(ctx, ref, `{"api_key":"invalid"}`)
 	var perr *provider.Error
@@ -100,7 +105,7 @@ func TestIntegrationTestProvider(t *testing.T) {
 		t.Fatalf("import state =\n%s\nwant\n%s", imported[0].State, want)
 	}
 
-	read, gone, _, err := m.Read(ctx, ref, "testprov_item", imported[0].State, imported[0].Private)
+	read, gone, _, err := m.Read(ctx, ref, "testprov_item", imported[0].State, imported[0].Private, &imported[0].SchemaVersion)
 	if err != nil || gone || string(read.State) != want {
 		t.Fatalf("read = %s gone=%v err=%v", read.State, gone, err)
 	}
@@ -109,13 +114,13 @@ func TestIntegrationTestProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, gone, _, err := m.Read(ctx, ref, "testprov_item", []byte(`{"id":"gone"}`), nil); err != nil || !gone {
+	if _, gone, _, err := m.Read(ctx, ref, "testprov_item", []byte(`{"id":"gone"}`), nil, nil); err != nil || !gone {
 		t.Fatalf("read gone: %v %v", gone, err)
 	}
 	if _, _, err := m.Import(ctx, ref, "testprov_item", "gone"); !errors.As(err, &perr) || perr.Code != provider.CodeNotFound {
 		t.Fatalf("import gone: %v", err)
 	}
-	_, _, _, err = m.Read(ctx, ref, "testprov_item", []byte(`{"id":"fail"}`), nil)
+	_, _, _, err = m.Read(ctx, ref, "testprov_item", []byte(`{"id":"fail"}`), nil, nil)
 	if !errors.As(err, &perr) || perr.Code != provider.CodeFailedPrecondition || perr.Diagnostics[0].Attribute != "name" {
 		t.Fatalf("read fail: %v", err)
 	}

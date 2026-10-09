@@ -29,8 +29,7 @@ jobs:
           key: go-verify-${{ runner.os }}-${{ hashFiles('go.sum', 'testprovider/go.sum') }}
       # go mod verify, vendor/ and gen/ freshness, terraform-plugin-go guard
       - run: make check-fresh
-      - run: go vet ./...
-      - run: golangci-lint run
+      - run: make lint
 
   test:
     if: github.event_name != 'schedule'
@@ -52,10 +51,8 @@ jobs:
         with:
           path: ~/.cache/provider-bridge-test/registry.opentofu.org
           key: providers-${{ runner.os }}-${{ hashFiles('testdata/pins.json') }}
-      - name: Build the protocol 6 test provider (separate module, not vendored)
-        run: go build -o /dev/null .
-        working-directory: testprovider
-      - run: go test -race ./...
+      # Builds the protocol 6 test provider once (bin/), then runs every test.
+      - run: make test
 
   govulncheck:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'

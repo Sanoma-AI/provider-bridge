@@ -13,8 +13,6 @@ import (
 	"strings"
 	"time"
 
-	goplugin "github.com/hashicorp/go-plugin"
-
 	"github.com/Sanoma-AI/provider-bridge/internal/provider"
 	"github.com/Sanoma-AI/provider-bridge/internal/registry"
 	"github.com/Sanoma-AI/provider-bridge/internal/server"
@@ -45,7 +43,7 @@ func serve(ctx context.Context, args []string, stdin io.Reader, stdout, stderr i
 	dev := devFlag{}
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	c.register(fs)
+	c.register(fs, true)
 	socket := fs.String("socket", "", "unix socket path to listen on (required)")
 	watchStdin := fs.Bool("watch-stdin", true, "exit when stdin reaches EOF, so the bridge dies with its parent")
 	fs.Var(dev, "dev-provider", "SOURCE=PATH: serve SOURCE from an unverified local binary (tests and provider development only; repeatable)")
@@ -70,18 +68,13 @@ func serve(ctx context.Context, args []string, stdin io.Reader, stdout, stderr i
 		}()
 	}
 
-	for source, path := range dev {
-		log.Warn("dev provider override: binary is not verified", "provider", source, "binary", path)
+	var launcher provider.Launcher = &provider.RegistryLauncher{Cache: c.cache(log), Logger: log, TFLog: c.tfLog}
+	if len(dev) > 0 {
+		for source, path := range dev {
+			log.Warn("dev provider override: binary is not verified", "provider", source, "binary", path)
+		}
+		launcher = &provider.OverrideLauncher{Binaries: dev, Next: launcher}
 	}
-	launcher := &provider.RegistryLauncher{
-		Cache:  &registry.Cache{Dir: c.cacheDir, Client: &registry.Client{}, Logger: log},
-		Logger: log,
-		TFLog:  c.tfLog,
-		Dev:    dev,
-	}
-	// Deferred calls run last-first: the Manager stops its providers, then
-	// go-plugin kills any managed process that is somehow still alive.
-	defer goplugin.CleanupClients()
 	m := provider.NewManager(launcher, log)
 	defer m.Shutdown()
 

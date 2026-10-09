@@ -56,7 +56,7 @@ func (s *Service) GetSchema(ctx context.Context, req *connect.Request[bridgev1.G
 		return nil, toConnect(ctx, err)
 	}
 	return connect.NewResponse(&bridgev1.GetSchemaResponse{
-		SchemaJson: string(res.JSON),
+		SchemaJson: res.JSON,
 		Protocol:   int32(res.Schema.Protocol),
 		Sha256:     res.SHA256,
 	}), nil
@@ -86,7 +86,7 @@ func (s *Service) Import(ctx context.Context, req *connect.Request[bridgev1.Impo
 
 // Read implements BridgeService.
 func (s *Service) Read(ctx context.Context, req *connect.Request[bridgev1.ReadRequest]) (*connect.Response[bridgev1.ReadResponse], error) {
-	res, gone, warnings, err := s.m.Read(ctx, ref(req.Msg.GetProvider()), req.Msg.GetTypeName(), []byte(req.Msg.GetStateJson()), req.Msg.GetPrivate())
+	res, gone, warnings, err := s.m.Read(ctx, ref(req.Msg.GetProvider()), req.Msg.GetTypeName(), []byte(req.Msg.GetStateJson()), req.Msg.GetPrivate(), req.Msg.SchemaVersion)
 	if err != nil {
 		return nil, toConnect(ctx, err)
 	}
@@ -99,12 +99,7 @@ func (s *Service) Read(ctx context.Context, req *connect.Request[bridgev1.ReadRe
 
 // Close implements BridgeService.
 func (s *Service) Close(_ context.Context, req *connect.Request[bridgev1.CloseRequest]) (*connect.Response[bridgev1.CloseResponse], error) {
-	if p := req.Msg.GetProvider(); p != nil {
-		r := ref(p)
-		s.m.Close(&r)
-	} else {
-		s.m.Close(nil)
-	}
+	s.m.Close(ref(req.Msg.GetProvider()))
 	return connect.NewResponse(&bridgev1.CloseResponse{}), nil
 }
 

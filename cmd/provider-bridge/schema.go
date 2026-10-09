@@ -10,12 +10,9 @@ import (
 	"io"
 
 	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/Sanoma-AI/provider-bridge/internal/plugin"
 	"github.com/Sanoma-AI/provider-bridge/internal/provider"
-	"github.com/Sanoma-AI/provider-bridge/internal/registry"
-	"github.com/Sanoma-AI/provider-bridge/internal/tfproto"
 )
 
 // schemaCmd prints a provider's schema document, or with --raw the
@@ -24,7 +21,7 @@ func schemaCmd(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	var c common
 	fs := flag.NewFlagSet("schema", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	c.register(fs)
+	c.register(fs, true)
 	raw := fs.Bool("raw", false, "print the raw plugin protocol response as protojson")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -37,39 +34,26 @@ func schemaCmd(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	if err != nil {
 		return err
 	}
-	launcher := &provider.RegistryLauncher{
-		Cache:  &registry.Cache{Dir: c.cacheDir, Client: &registry.Client{}, Logger: log},
-		Logger: log,
-		TFLog:  c.tfLog,
-	}
-	ref := provider.Ref{Source: src.String(), Version: version, SHA256: pin}
 	if !*raw {
-		res, err := provider.NewManager(launcher, log).Schema(ctx, ref)
+		launcher := &provider.RegistryLauncher{Cache: c.cache(log), Logger: log, TFLog: c.tfLog}
+		res, err := provider.NewManager(launcher, log).Schema(ctx, provider.Ref{Source: src.String(), Version: version, SHA256: pin})
 		if err != nil {
 			return err
 		}
-		_, err = stdout.Write(res.JSON)
+		_, err = io.WriteString(stdout, res.JSON)
 		return err
 	}
 
-	rel, err := launcher.Resolve(ctx, ref)
+	inst, err := c.cache(log).Install(ctx, src, version, pin)
 	if err != nil {
 		return err
 	}
-	inst, err := launcher.Start(ctx, rel)
+	proc, err := plugin.Start(plugin.Config{Binary: inst.Binary(), Name: src.String(), Logger: log, TFLog: c.tfLog})
 	if err != nil {
 		return err
 	}
-	defer inst.Kill()
-	var msg proto.Message
-	switch p := inst.(*plugin.Process).Provider.(type) {
-	case *tfproto.Client5:
-		msg, err = p.RawSchema(ctx)
-	case *tfproto.Client6:
-		msg, err = p.RawSchema(ctx)
-	default:
-		err = fmt.Errorf("unexpected client %T", p)
-	}
+	defer proc.Kill()
+	msg, err := proc.RawSchema(ctx)
 	if err != nil {
 		return err
 	}

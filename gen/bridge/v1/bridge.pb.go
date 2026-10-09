@@ -539,11 +539,19 @@ func (x *ImportResponse) GetWarnings() []*Diagnostic {
 }
 
 type ReadRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Provider      *ProviderRef           `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
-	TypeName      string                 `protobuf:"bytes,2,opt,name=type_name,json=typeName,proto3" json:"type_name,omitempty"`
-	StateJson     string                 `protobuf:"bytes,3,opt,name=state_json,json=stateJson,proto3" json:"state_json,omitempty"`
-	Private       []byte                 `protobuf:"bytes,4,opt,name=private,proto3" json:"private,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Provider *ProviderRef           `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
+	TypeName string                 `protobuf:"bytes,2,opt,name=type_name,json=typeName,proto3" json:"type_name,omitempty"`
+	// Prior state as a JSON object: of the resource type's current implied
+	// type, or, when schema_version is set, as written at that version.
+	StateJson string `protobuf:"bytes,3,opt,name=state_json,json=stateJson,proto3" json:"state_json,omitempty"`
+	Private   []byte `protobuf:"bytes,4,opt,name=private,proto3" json:"private,omitempty"`
+	// The schema version state_json was written with (Resource.schema_version
+	// of the response that produced it). When set, the provider upgrades the
+	// state (UpgradeResourceState) before reading it, as OpenTofu does on
+	// every refresh; when unset, state_json must already match the current
+	// schema.
+	SchemaVersion *int64 `protobuf:"varint,5,opt,name=schema_version,json=schemaVersion,proto3,oneof" json:"schema_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -604,6 +612,13 @@ func (x *ReadRequest) GetPrivate() []byte {
 		return x.Private
 	}
 	return nil
+}
+
+func (x *ReadRequest) GetSchemaVersion() int64 {
+	if x != nil && x.SchemaVersion != nil {
+		return *x.SchemaVersion
+	}
+	return 0
 }
 
 type ReadResponse struct {
@@ -855,13 +870,15 @@ const file_bridge_v1_bridge_proto_rawDesc = "" +
 	"\x02id\x18\x03 \x01(\tR\x02id\"\x94\x01\n" +
 	"\x0eImportResponse\x12@\n" +
 	"\tresources\x18\x01 \x03(\v2\".sanoma.providerbridge.v1.ResourceR\tresources\x12@\n" +
-	"\bwarnings\x18\x02 \x03(\v2$.sanoma.providerbridge.v1.DiagnosticR\bwarnings\"\xa6\x01\n" +
+	"\bwarnings\x18\x02 \x03(\v2$.sanoma.providerbridge.v1.DiagnosticR\bwarnings\"\xe5\x01\n" +
 	"\vReadRequest\x12A\n" +
 	"\bprovider\x18\x01 \x01(\v2%.sanoma.providerbridge.v1.ProviderRefR\bprovider\x12\x1b\n" +
 	"\ttype_name\x18\x02 \x01(\tR\btypeName\x12\x1d\n" +
 	"\n" +
 	"state_json\x18\x03 \x01(\tR\tstateJson\x12\x18\n" +
-	"\aprivate\x18\x04 \x01(\fR\aprivate\"\xa4\x01\n" +
+	"\aprivate\x18\x04 \x01(\fR\aprivate\x12*\n" +
+	"\x0eschema_version\x18\x05 \x01(\x03H\x00R\rschemaVersion\x88\x01\x01B\x11\n" +
+	"\x0f_schema_version\"\xa4\x01\n" +
 	"\fReadResponse\x12>\n" +
 	"\bresource\x18\x01 \x01(\v2\".sanoma.providerbridge.v1.ResourceR\bresource\x12\x12\n" +
 	"\x04gone\x18\x02 \x01(\bR\x04gone\x12@\n" +
@@ -951,6 +968,7 @@ func file_bridge_v1_bridge_proto_init() {
 	if File_bridge_v1_bridge_proto != nil {
 		return
 	}
+	file_bridge_v1_bridge_proto_msgTypes[8].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

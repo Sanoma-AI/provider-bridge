@@ -16,9 +16,9 @@ package schema
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/zclconf/go-cty/cty"
-	ctyjson "github.com/zclconf/go-cty/cty/json"
 )
 
 // FormatVersion is the version of the JSON document produced by Marshal.
@@ -42,9 +42,12 @@ type ProviderSchema struct {
 	FormatVersion  int                  `json:"formatVersion"`
 	Protocol       int                  `json:"protocol"`
 	ProviderConfig *Block               `json:"providerConfig"`
-	Resources      map[string]*Resource `json:"resources"`
-	Source         string               `json:"source"`
-	Version        string               `json:"version"`
+	// ProviderMeta is the provider_meta block, for the few providers that
+	// have one.
+	ProviderMeta *Block               `json:"providerMeta,omitempty"`
+	Resources    map[string]*Resource `json:"resources"`
+	Source       string               `json:"source"`
+	Version      string               `json:"version"`
 }
 
 // Resource is the schema of one resource type or data source.
@@ -53,13 +56,17 @@ type Resource struct {
 	SchemaVersion int64  `json:"schemaVersion"`
 }
 
-// Block is a set of attributes and nested blocks.
+// Block is a set of attributes and nested blocks. A Block must not change
+// once ImpliedType has been called: the type is computed once.
 type Block struct {
 	Attributes      map[string]*Attribute   `json:"attributes"`
 	Blocks          map[string]*NestedBlock `json:"blocks"`
 	Deprecated      bool                    `json:"deprecated,omitempty"`
 	Description     string                  `json:"description,omitempty"`
 	DescriptionKind string                  `json:"descriptionKind,omitempty"`
+
+	implied     cty.Type
+	impliedOnce sync.Once
 }
 
 // Attribute is one attribute of a block or nested type.
@@ -72,10 +79,10 @@ type Attribute struct {
 	Optional        bool    `json:"optional,omitempty"`
 	Required        bool    `json:"required,omitempty"`
 	Sensitive       bool    `json:"sensitive,omitempty"`
-	// Type is the attribute's cty type; for a nested attribute it is the
-	// type implied by NestedType.
-	Type      Type `json:"type"`
-	WriteOnly bool `json:"writeOnly,omitempty"`
+	// Type is the attribute's cty type (ctyjson encoding in the document);
+	// for a nested attribute it is the type implied by NestedType.
+	Type      cty.Type `json:"type"`
+	WriteOnly bool     `json:"writeOnly,omitempty"`
 }
 
 // Object is a nested attribute type (plugin protocol 6 only).
@@ -94,29 +101,12 @@ type NestedBlock struct {
 	Nesting  Nesting `json:"nesting"`
 }
 
-// Type wraps cty.Type to marshal it with ctyjson.
-type Type struct{ cty.Type }
-
-// MarshalJSON encodes the type as ctyjson does, e.g. ["list","string"].
-func (t Type) MarshalJSON() ([]byte, error) {
-	if t.Type == cty.NilType {
-		return nil, fmt.Errorf("attribute has no type")
-	}
-	return ctyjson.MarshalType(t.Type)
-}
-
-// UnmarshalJSON decodes a ctyjson type.
-func (t *Type) UnmarshalJSON(b []byte) error {
-	ty, err := ctyjson.UnmarshalType(b)
-	if err != nil {
-		return err
-	}
-	t.Type = ty
-	return nil
-}
-
-// Marshal encodes the schema document with two-space indentation.
+// Marshal encodes the schema document with two-space indentation. Every
+// attribute must have a Type (see FillTypes).
 func Marshal(s *ProviderSchema) ([]byte, error) {
+	if err := s.checkTypes(); err != nil {
+		return nil, err
+	}
 	b, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return nil, err
@@ -142,7 +132,8 @@ func (s *ProviderSchema) Resource(typeName string) (*Resource, bool) {
 	return r, ok
 }
 
-// ImpliedType is the cty object type of a value conforming to b.
+// ImpliedType is the cty object type of a value conforming to b, computed
+// once per Block.
 //
 // It follows OpenTofu's configschema: single and group blocks are objects,
 // list blocks are lists (or DynamicPseudoType if the element type has
@@ -152,6 +143,11 @@ func (b *Block) ImpliedType() cty.Type {
 	if b == nil {
 		return cty.EmptyObject
 	}
+	b.impliedOnce.Do(func() { b.implied = b.impliedType() })
+	return b.implied
+}
+
+func (b *Block) impliedType() cty.Type {
 	atys := make(map[string]cty.Type, len(b.Attributes)+len(b.Blocks))
 	for name, a := range b.Attributes {
 		atys[name] = a.ImpliedType()
@@ -162,12 +158,13 @@ func (b *Block) ImpliedType() cty.Type {
 	return cty.Object(atys)
 }
 
-// ImpliedType is the attribute's type: Type, or the nested type's object.
+// ImpliedType is the attribute's type: Type when set (FillTypes sets it on
+// nested attributes too), else the nested type's.
 func (a *Attribute) ImpliedType() cty.Type {
-	if a.NestedType != nil {
+	if a.Type == cty.NilType && a.NestedType != nil {
 		return a.NestedType.ImpliedType()
 	}
-	return a.Type.Type
+	return a.Type
 }
 
 // ImpliedType of a nested attribute type.
@@ -224,12 +221,53 @@ func (a *Attribute) fillTypes() {
 	for _, c := range a.NestedType.Attributes {
 		c.fillTypes()
 	}
-	a.Type = Type{a.NestedType.ImpliedType()}
+	a.Type = a.NestedType.ImpliedType()
+}
+
+// checkTypes reports the first attribute without a type.
+func (s *ProviderSchema) checkTypes() error {
+	var check func(path string, attrs map[string]*Attribute, blocks map[string]*NestedBlock) error
+	check = func(path string, attrs map[string]*Attribute, blocks map[string]*NestedBlock) error {
+		for name, a := range attrs {
+			if a.Type == cty.NilType {
+				return fmt.Errorf("schema: attribute %s%s has no type", path, name)
+			}
+			if a.NestedType != nil {
+				if err := check(path+name+".", a.NestedType.Attributes, nil); err != nil {
+					return err
+				}
+			}
+		}
+		for name, nb := range blocks {
+			if nb.Block != nil {
+				if err := check(path+name+".", nb.Block.Attributes, nb.Block.Blocks); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	top := map[string]*Block{"provider.": s.ProviderConfig, "provider_meta.": s.ProviderMeta}
+	for name, r := range s.Resources {
+		top[name+"."] = r.Block
+	}
+	for name, r := range s.DataSources {
+		top["data."+name+"."] = r.Block
+	}
+	for path, b := range top {
+		if b != nil {
+			if err := check(path, b.Attributes, b.Blocks); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // FillTypes fills nested attribute types throughout the schema.
 func (s *ProviderSchema) FillTypes() {
 	s.ProviderConfig.FillTypes()
+	s.ProviderMeta.FillTypes()
 	for _, r := range s.Resources {
 		r.Block.FillTypes()
 	}
