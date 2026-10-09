@@ -14,17 +14,13 @@
 package plugin
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"os/exec"
-	"strings"
-	"sync"
 	"syscall"
 
 	"github.com/hashicorp/go-hclog"
@@ -90,7 +86,6 @@ type Config struct {
 type Process struct {
 	tfproto.Provider
 	client *goplugin.Client
-	stderr *lineLogger
 }
 
 // Start launches the provider and dispenses its client for the negotiated
@@ -106,7 +101,10 @@ func Start(cfg Config) (*Process, error) {
 	// reach providers; the bridge stops them itself.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
-	stderr := &lineLogger{log: log.With("logger", "provider."+cfg.Name)}
+	// go-plugin parses the provider's stderr into this logger; its output
+	// is discarded and the sink re-emits every line through slog.
+	hl := hclog.NewInterceptLogger(&hclog.LoggerOptions{Output: io.Discard, Level: hclog.Trace})
+	hl.RegisterSink(slogSink{log: log.With("logger", "provider."+cfg.Name)})
 	client := goplugin.NewClient(&goplugin.ClientConfig{
 		HandshakeConfig:  Handshake,
 		VersionedPlugins: plugins,
@@ -114,24 +112,20 @@ func Start(cfg Config) (*Process, error) {
 		AllowedProtocols: []goplugin.Protocol{goplugin.ProtocolGRPC},
 		AutoMTLS:         true,
 		SkipHostEnv:      true,
-		// go-plugin's own hclog output is discarded; the provider's raw
-		// stderr goes to Stderr and is re-logged by lineLogger.
-		Logger:          hclog.NewNullLogger(),
-		Stderr:          stderr,
-		SyncStdout:      io.Discard,
-		SyncStderr:      io.Discard,
-		GRPCDialOptions: []grpc.DialOption{grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxMsgSize), grpc.MaxCallSendMsgSize(maxMsgSize))},
+		Logger:           hl,
+		Stderr:           io.Discard,
+		SyncStdout:       io.Discard,
+		SyncStderr:       io.Discard,
+		GRPCDialOptions:  []grpc.DialOption{grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxMsgSize), grpc.MaxCallSendMsgSize(maxMsgSize))},
 	})
 	rpc, err := client.Client()
 	if err != nil {
 		client.Kill()
-		stderr.flush()
 		return nil, fmt.Errorf("start provider %s: %w", cfg.Name, err)
 	}
 	raw, err := rpc.Dispense(pluginName)
 	if err != nil {
 		client.Kill()
-		stderr.flush()
 		return nil, fmt.Errorf("start provider %s: %w", cfg.Name, err)
 	}
 	prov, ok := raw.(tfproto.Provider)
@@ -139,7 +133,7 @@ func Start(cfg Config) (*Process, error) {
 		client.Kill()
 		return nil, fmt.Errorf("start provider %s: unexpected client %T", cfg.Name, raw)
 	}
-	p := &Process{Provider: prov, client: client, stderr: stderr}
+	p := &Process{Provider: prov, client: client}
 	log.Debug("provider started", "provider", cfg.Name, "protocol", client.NegotiatedVersion(), "binary", cfg.Binary)
 	return p, nil
 }
@@ -147,11 +141,9 @@ func Start(cfg Config) (*Process, error) {
 // Exited reports whether the provider process has exited.
 func (p *Process) Exited() bool { return p.client.Exited() }
 
-// Kill stops the provider: gracefully if it responds, else by force.
-func (p *Process) Kill() {
-	p.client.Kill()
-	p.stderr.flush()
-}
+// Kill stops the provider: gracefully if it responds, else by force. It
+// returns once the provider's stderr has been logged.
+func (p *Process) Kill() { p.client.Kill() }
 
 // passEnv lists host variables a provider may need to reach its API.
 var passEnv = []string{
@@ -176,74 +168,51 @@ func Env(tfLog string) []string {
 	return env
 }
 
-// lineLogger re-emits provider stderr lines through slog: hclog JSON lines
-// keep their message, level and fields; anything else (panics, plain
-// log.Printf output) is logged as "provider stderr" with the line attached.
-type lineLogger struct {
-	log *slog.Logger
-	mu  sync.Mutex
-	buf bytes.Buffer
-}
+// slogSink receives the lines go-plugin parsed from the provider's stderr
+// (hclog JSON, or plain text with a level inferred from "[DEBUG]"-style
+// prefixes and panics flagged as errors) and go-plugin's own messages, and
+// re-emits them through slog.
+type slogSink struct{ log *slog.Logger }
 
-const maxLine = 1 << 20
-
-func (l *lineLogger) Write(p []byte) (int, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.buf.Write(p)
-	for {
-		i := bytes.IndexByte(l.buf.Bytes(), '\n')
-		if i < 0 {
-			if l.buf.Len() > maxLine {
-				l.emit(l.buf.String())
-				l.buf.Reset()
-			}
-			return len(p), nil
+func (s slogSink) Accept(name string, level hclog.Level, msg string, args ...any) {
+	lvl := slogLevel(level)
+	switch {
+	case name == "":
+		// go-plugin itself ("plugin process exited"): debug unless it warns.
+		if lvl < slog.LevelWarn {
+			lvl = slog.LevelDebug
 		}
-		line := string(l.buf.Next(i + 1))
-		l.emit(strings.TrimRight(line, "\r\n"))
+		s.log.Log(context.Background(), lvl, msg, append([]any{"source", "go-plugin"}, args...)...)
+	case len(args) == 0:
+		// A plain stderr line: go-plugin attaches a timestamp to every
+		// hclog JSON entry, so only plain lines come without arguments.
+		s.log.Log(context.Background(), lvl, "provider stderr", "line", msg)
+	default:
+		s.log.Log(context.Background(), lvl, msg, withoutKey(args, "timestamp")...)
 	}
 }
 
-func (l *lineLogger) flush() {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.buf.Len() > 0 {
-		l.emit(l.buf.String())
-		l.buf.Reset()
+// withoutKey drops one key and its value from key-value pairs.
+func withoutKey(kv []any, key string) []any {
+	out := make([]any, 0, len(kv))
+	for i := 0; i+1 < len(kv); i += 2 {
+		if k, ok := kv[i].(string); ok && k == key {
+			continue
+		}
+		out = append(out, kv[i], kv[i+1])
 	}
+	return out
 }
 
-func (l *lineLogger) emit(line string) {
-	if strings.TrimSpace(line) == "" {
-		return
-	}
-	var entry map[string]any
-	if json.Unmarshal([]byte(line), &entry) != nil {
-		l.log.Warn("provider stderr", "line", line)
-		return
-	}
-	msg, _ := entry["@message"].(string)
-	lvl, _ := entry["@level"].(string)
-	delete(entry, "@message")
-	delete(entry, "@level")
-	delete(entry, "@timestamp")
-	attrs := make([]slog.Attr, 0, len(entry))
-	for k, v := range entry {
-		attrs = append(attrs, slog.Any(k, v))
-	}
-	l.log.LogAttrs(context.Background(), level(lvl), msg, attrs...)
-}
-
-func level(s string) slog.Level {
-	switch strings.ToLower(s) {
-	case "trace":
+func slogLevel(l hclog.Level) slog.Level {
+	switch l {
+	case hclog.Trace:
 		return slog.LevelDebug - 4
-	case "debug":
+	case hclog.Debug:
 		return slog.LevelDebug
-	case "warn", "warning":
+	case hclog.Warn:
 		return slog.LevelWarn
-	case "error":
+	case hclog.Error:
 		return slog.LevelError
 	default:
 		return slog.LevelInfo
