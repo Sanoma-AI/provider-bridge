@@ -70,19 +70,11 @@ func Ref(t testing.TB, source string) provider.Ref {
 	return provider.Ref{Source: source, Version: p.Version, SHA256: p.SHA256}
 }
 
-// CacheDir is the provider cache shared by test runs:
-// $XDG_CACHE_HOME/provider-bridge-test, else ~/.cache/provider-bridge-test.
+// CacheDir is the provider cache shared by test runs and bridge-record:
+// provider-bridge-test in the user's cache directory (registry.CacheDir).
 func CacheDir(t testing.TB) string {
 	t.Helper()
-	base := os.Getenv("XDG_CACHE_HOME")
-	if base == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			t.Fatal(err)
-		}
-		base = filepath.Join(home, ".cache")
-	}
-	dir := filepath.Join(base, "provider-bridge-test")
+	dir := registry.CacheDir("provider-bridge-test")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}

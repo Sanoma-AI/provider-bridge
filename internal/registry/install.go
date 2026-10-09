@@ -63,6 +63,16 @@ type Cache struct {
 	GOOS, GOARCH string
 }
 
+// CacheDir is the directory name in the user's cache directory
+// (os.UserCacheDir: $XDG_CACHE_HOME or ~/.cache on Linux, ~/Library/Caches
+// on macOS), or ".name" in the working directory when there is none.
+func CacheDir(name string) string {
+	if d, err := os.UserCacheDir(); err == nil {
+		return filepath.Join(d, name)
+	}
+	return "." + name
+}
+
 // NewCache returns a cache in dir that downloads from DefaultHost and
 // allowHosts and trusts the bridge's built-in keys (TrustedKeys).
 func NewCache(dir string, log *slog.Logger, allowHosts []string) *Cache {

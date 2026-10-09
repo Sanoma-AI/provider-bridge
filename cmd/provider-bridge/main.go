@@ -23,7 +23,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -67,7 +66,7 @@ type common struct {
 }
 
 func (c *common) register(fs *flag.FlagSet) {
-	fs.StringVar(&c.cacheDir, "cache-dir", defaultCacheDir(), "provider cache directory")
+	fs.StringVar(&c.cacheDir, "cache-dir", registry.CacheDir("provider-bridge"), "provider cache directory")
 	fs.StringVar(&c.logLevel, "log-level", "info", "log level: debug, info, warn, error")
 	fs.StringVar(&c.tfLog, "tf-log", "", "TF_LOG level passed to provider processes (e.g. debug); empty disables provider logs")
 	fs.Var(&c.allowHosts, "allow-host", "HOST: also download providers from this registry host (default: "+registry.DefaultHost+" only; repeatable)")
@@ -98,14 +97,4 @@ func (c *common) logger(stderr io.Writer) (*slog.Logger, error) {
 		return nil, fmt.Errorf("--log-level: %w", err)
 	}
 	return slog.New(slog.NewJSONHandler(stderr, &slog.HandlerOptions{Level: lvl})), nil
-}
-
-func defaultCacheDir() string {
-	if d := os.Getenv("XDG_CACHE_HOME"); d != "" {
-		return filepath.Join(d, "provider-bridge")
-	}
-	if d, err := os.UserCacheDir(); err == nil {
-		return filepath.Join(d, "provider-bridge")
-	}
-	return ".provider-bridge-cache"
 }

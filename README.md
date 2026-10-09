@@ -33,7 +33,7 @@ bin/provider-bridge serve --socket /tmp/bridge.sock --cache-dir ~/.cache/provide
 | Flag | Meaning |
 | --- | --- |
 | `--socket PATH` | unix socket to listen on; created `0600`; a stale socket is replaced |
-| `--cache-dir DIR` | verified provider binaries and cached schemas (default `$XDG_CACHE_HOME/provider-bridge` or the OS cache dir) |
+| `--cache-dir DIR` | verified provider binaries and cached schemas (default `provider-bridge` in the user cache directory: `$XDG_CACHE_HOME` or `~/.cache` on Linux, `~/Library/Caches` on macOS) |
 | `--log-level LEVEL` | `debug`, `info`, `warn`, `error` |
 | `--tf-log LEVEL` | `TF_LOG` for provider processes (their logs are off by default) |
 | `--dev-provider SOURCE=PATH` | serve SOURCE from a local unverified binary: tests and provider development only |
@@ -122,7 +122,7 @@ The bridge starts each provider as a child process and stops it on `Close`, and 
 
 ```sh
 make test-short        # unit tests, no network
-make test              # plus integration: downloads hashicorp/null 3.3.2 into ~/.cache/provider-bridge-test,
+make test              # plus integration: downloads hashicorp/null 3.3.2 into provider-bridge-test in the user cache directory,
                        # builds testprovider/ (a protocol 6 Plugin Framework provider), runs the server end to end
 make lint              # go vet + golangci-lint
 make generate          # regenerate gen/ from proto/ with buf (protoc plugins are go.mod tools)

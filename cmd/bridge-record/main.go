@@ -87,7 +87,7 @@ func run(args []string) error {
 	fs.Var(&o.imports, "import", "TYPE=ID: import and read one resource (repeatable)")
 	fs.Var(&o.scrub, "scrub", "TYPE.PATH: also scrub this attribute path (repeatable)")
 	fs.StringVar(&o.out, "out", "testdata", "testdata directory")
-	fs.StringVar(&o.cacheDir, "cache-dir", defaultCacheDir(), "provider cache directory")
+	fs.StringVar(&o.cacheDir, "cache-dir", registry.CacheDir("provider-bridge-test"), "provider cache directory (the tests' cache)")
 	fs.BoolVar(&o.schemaOnly, "schema-only", false, "record the schema only (needs no credentials)")
 	fs.StringVar(&o.tfLog, "tf-log", "", "TF_LOG level for the provider")
 	if err := fs.Parse(args); err != nil {
@@ -99,16 +99,6 @@ func run(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	return record(ctx, &o)
-}
-
-func defaultCacheDir() string {
-	if d := os.Getenv("XDG_CACHE_HOME"); d != "" {
-		return filepath.Join(d, "provider-bridge-test")
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		return filepath.Join(home, ".cache", "provider-bridge-test")
-	}
-	return ".provider-bridge-cache"
 }
 
 type recorder struct {
