@@ -6,4 +6,4 @@ tfplugin5.proto is a byte-for-byte copy of tfplugin5.10.proto. Do not edit it.
 Package `tfplugin5` is kept because gRPC method paths (/tfplugin5.Provider/GetSchema)
 are on the wire; go_package is set by buf managed mode (buf.gen.tfplugin.yaml).
 To update: download the newest tfplugin5.N.proto at a pinned commit over this file,
-update this note, run `make generate`.
+update this note, run `mise run generate`.

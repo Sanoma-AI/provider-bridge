@@ -6,4 +6,4 @@ tfplugin6.proto is a byte-for-byte copy of tfplugin6.10.proto. Do not edit it.
 Package `tfplugin6` is kept because gRPC method paths (/tfplugin6.Provider/GetProviderSchema)
 are on the wire; go_package is set by buf managed mode (buf.gen.tfplugin.yaml).
 To update: download the newest tfplugin6.N.proto at a pinned commit over this file,
-update this note, run `make generate`.
+update this note, run `mise run generate`.

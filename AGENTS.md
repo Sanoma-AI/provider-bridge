@@ -26,17 +26,8 @@ A Go sidecar that runs OpenTofu providers (plugin protocol 5 and 6) and serves `
 
 ## Rules
 
-- Toolchain and tasks from `.mise.toml`: `mise install` once, then `mise run <task>` (`mise tasks` lists them). Each task calls the Makefile target of the same name, so `mise x -- make <target>` is the same thing. Run plain `go` commands as `mise x -- go …`: on some machines `go` on PATH is another version (or use `mise activate` / mise's shims). `GOTOOLCHAIN=local` is set, so Go never downloads a toolchain.
-
-  | Task | What |
-  | --- | --- |
-  | `check` | what CI runs: `check-fresh`, `lint`, `test` |
-  | `test` / `test-short` | `go test -race ./...` with the test provider built once / unit tests only, no network |
-  | `lint` | golangci-lint, includes govet |
-  | `check-fresh` | `go mod verify`, `vendor/` and `gen/` fresh, `guard` |
-  | `vendor` / `generate` | re-vendor / regenerate `gen/` |
-
-- Before committing: `mise run check` (or at least `mise run lint` and `mise run test-short`).
+- Toolchain and tasks from `.mise.toml`: `mise install` once, then `mise run <task>`; `mise tasks` describes them and `mise run check` is what CI runs (`check-fresh`, `lint`, `test`). Plain `go` commands: `mise x -- go …` (`go` on PATH may be another version).
+- Before committing: `mise run lint` and `mise run test` (or `test-short`). Before pushing, on a clean tree: `mise run check` (`check-fresh` rewrites and diffs `vendor/` and `gen/`, so it fails on uncommitted changes there).
 - Changed `go.mod`? Run `mise run vendor` and commit `vendor/`. Changed `proto/`? Run `mise run generate` and commit `gen/`.
 - `terraform-plugin-go` and `terraform-plugin-framework` must never be imported by the main module (CI guard: `mise run guard`). They belong in `testprovider/` only.
 - Never edit `proto/tfplugin5` or `proto/tfplugin6`; replace them from upstream and update `UPSTREAM`.
