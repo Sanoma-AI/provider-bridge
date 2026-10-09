@@ -12,8 +12,6 @@ package provider
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -238,10 +236,7 @@ func (m *Manager) start(ctx context.Context, rel Release) (Instance, error) {
 }
 
 // ConfigHash identifies a provider configuration without revealing it.
-func ConfigHash(configJSON string) string {
-	sum := sha256.Sum256([]byte(configJSON))
-	return hex.EncodeToString(sum[:])
-}
+func ConfigHash(configJSON string) string { return registry.SHA256Hex([]byte(configJSON)) }
 
 // Configure starts and configures the provider. It is idempotent for the
 // same config; another config for the same (source, version) fails until
@@ -394,7 +389,7 @@ func (m *Manager) remove(key string, c *configured) {
 func (m *Manager) callErr(ref Ref, c *configured, what string, err error) error {
 	var unknown *tfproto.UnknownTypeError
 	if errors.As(err, &unknown) {
-		return newError(CodeInvalidArgument, err.Error(), nil)
+		return newError(CodeInvalidArgument, "", err)
 	}
 	if c.inst.Exited() {
 		m.remove(refKey(ref), c)
@@ -451,7 +446,7 @@ func (m *Manager) Read(ctx context.Context, ref Ref, typeName string, stateJSON,
 	}
 	r, ok := c.schema.Resource(typeName)
 	if !ok {
-		return Resource{}, false, nil, newError(CodeInvalidArgument, fmt.Sprintf("provider has no resource type %q", typeName), nil)
+		return Resource{}, false, nil, newError(CodeInvalidArgument, "", &tfproto.UnknownTypeError{TypeName: typeName})
 	}
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(stateJSON, &obj); err != nil || obj == nil {

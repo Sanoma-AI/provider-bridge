@@ -222,14 +222,13 @@ func (c *Cache) download(ctx context.Context, src Source, version, goos, goarch,
 	if err != nil {
 		return nil, fmt.Errorf("%s %s: %w", src, version, err)
 	}
-	sumsSum := sha256.Sum256(sums)
 	inst := &Installed{
 		Source:       src.String(),
 		Version:      version,
 		OS:           goos,
 		Arch:         goarch,
 		Protocols:    pkg.Protocols,
-		SumsSHA256:   hex.EncodeToString(sumsSum[:]),
+		SumsSHA256:   SHA256Hex(sums),
 		ZipSHA256:    got,
 		BinarySHA256: binSum,
 		SignedBy:     signer.KeyID,
@@ -267,8 +266,7 @@ func (c *Cache) downloadFile(ctx context.Context, rawURL, path string) (string, 
 	if err != nil {
 		return "", err
 	}
-	h := sha256.New()
-	n, err := io.Copy(io.MultiWriter(f, h), io.LimitReader(resp.Body, maxZipBytes+1))
+	n, sum, err := sha256Copy(f, io.LimitReader(resp.Body, maxZipBytes+1))
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
@@ -278,7 +276,7 @@ func (c *Cache) downloadFile(ctx context.Context, rawURL, path string) (string, 
 	if n > maxZipBytes {
 		return "", fmt.Errorf("larger than %d bytes", maxZipBytes)
 	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+	return sum, nil
 }
 
 // extractProvider copies the single terraform-provider-<type>* executable at
@@ -319,8 +317,7 @@ func extractProvider(zipPath, typ, dir string) (name, sum string, err error) {
 	if err != nil {
 		return "", "", err
 	}
-	h := sha256.New()
-	n, err := io.Copy(io.MultiWriter(out, h), io.LimitReader(rc, maxZipBytes+1))
+	n, sum, err := sha256Copy(out, io.LimitReader(rc, maxZipBytes+1))
 	if cerr := out.Close(); err == nil {
 		err = cerr
 	}
@@ -330,7 +327,21 @@ func extractProvider(zipPath, typ, dir string) (name, sum string, err error) {
 	if n > maxZipBytes {
 		return "", "", fmt.Errorf("zip entry %s is larger than %d bytes", found.Name, maxZipBytes)
 	}
-	return found.Name, hex.EncodeToString(h.Sum(nil)), nil
+	return found.Name, sum, nil
+}
+
+// SHA256Hex returns the hex sha256 of b.
+func SHA256Hex(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
+// sha256Copy copies src to dst and returns the byte count and the hex
+// sha256 of what it copied.
+func sha256Copy(dst io.Writer, src io.Reader) (int64, string, error) {
+	h := sha256.New()
+	n, err := io.Copy(io.MultiWriter(dst, h), src)
+	return n, hex.EncodeToString(h.Sum(nil)), err
 }
 
 // FileSHA256 returns the hex sha256 of the file at path.
@@ -340,11 +351,8 @@ func FileSHA256(path string) (string, error) {
 		return "", err
 	}
 	defer func() { _ = f.Close() }()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+	_, sum, err := sha256Copy(io.Discard, f)
+	return sum, err
 }
 
 // lockFile takes an exclusive flock on path, polling with backoff so that

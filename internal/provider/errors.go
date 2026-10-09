@@ -4,6 +4,8 @@
 package provider
 
 import (
+	"strings"
+
 	"github.com/Sanoma-AI/provider-bridge/internal/tfproto"
 )
 
@@ -34,14 +36,17 @@ type Error struct {
 }
 
 func (e *Error) Error() string {
-	msg := e.Message
+	var parts []string
+	if e.Message != "" {
+		parts = append(parts, e.Message)
+	}
 	if derr := e.Diagnostics.Err(); derr != nil {
-		msg += ": " + derr.Error()
+		parts = append(parts, derr.Error())
 	}
 	if e.Err != nil {
-		msg += ": " + e.Err.Error()
+		parts = append(parts, e.Err.Error())
 	}
-	return msg
+	return strings.Join(parts, ": ")
 }
 
 func (e *Error) Unwrap() error { return e.Err }

@@ -41,7 +41,7 @@ func startBridge(t *testing.T, extra ...string) (connectClient, grpcClient provi
 	args := append([]string{"serve", "--socket", socket, "--cache-dir", testutil.CacheDir(t), "--log-level", "debug"}, extra...)
 	done := make(chan error, 1)
 	go func() {
-		done <- run(args, stdinR, stdoutW, testWriter{t})
+		done <- run(args, stdinR, stdoutW, testutil.Writer(t))
 		_ = stdoutW.Close()
 	}()
 
@@ -89,13 +89,6 @@ func startBridge(t *testing.T, extra ...string) (connectClient, grpcClient provi
 	}
 	t.Cleanup(stop)
 	return connectClient, grpcClient, stop
-}
-
-type testWriter struct{ t *testing.T }
-
-func (w testWriter) Write(p []byte) (int, error) {
-	w.t.Log(strings.TrimRight(string(p), "\n"))
-	return len(p), nil
 }
 
 func TestE2ENull(t *testing.T) {

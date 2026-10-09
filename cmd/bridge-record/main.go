@@ -45,6 +45,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	bridgev1 "github.com/Sanoma-AI/provider-bridge/gen/bridge/v1"
+	"github.com/Sanoma-AI/provider-bridge/internal/pins"
 	"github.com/Sanoma-AI/provider-bridge/internal/provider"
 	"github.com/Sanoma-AI/provider-bridge/internal/registry"
 	"github.com/Sanoma-AI/provider-bridge/internal/schema"
@@ -132,7 +133,13 @@ func record(ctx context.Context, o *options) error {
 		return err
 	}
 	if o.pin == "" {
-		o.pin = pinFromFile(filepath.Join(o.out, "pins.json"), src.String(), o.version)
+		all, err := pins.Read(filepath.Join(o.out, "pins.json"))
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if p, ok := all[src.String()]; ok && p.Version == o.version {
+			o.pin = p.SHA256
+		}
 	}
 	log := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	launcher := &provider.RegistryLauncher{
@@ -188,23 +195,6 @@ func record(ctx context.Context, o *options) error {
 		}
 	}
 	return nil
-}
-
-// pinFromFile returns the pin testdata/pins.json records for source at
-// version, or "".
-func pinFromFile(path, source, version string) string {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	var pins map[string]struct{ Version, SHA256 string }
-	if json.Unmarshal(b, &pins) != nil {
-		return ""
-	}
-	if p, ok := pins[source]; ok && p.Version == version {
-		return p.SHA256
-	}
-	return ""
 }
 
 // config merges --config with --config-env values.

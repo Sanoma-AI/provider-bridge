@@ -4,8 +4,8 @@
 package testutil
 
 import (
-	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Sanoma-AI/provider-bridge/internal/pins"
 	"github.com/Sanoma-AI/provider-bridge/internal/provider"
 	"github.com/Sanoma-AI/provider-bridge/internal/registry"
 )
@@ -28,14 +29,6 @@ const TestProviderSource = "sanoma/testprov"
 // TestProviderVersion is the version tests request for the test provider.
 const TestProviderVersion = "0.0.1"
 
-// Pin is one entry of testdata/pins.json.
-type Pin struct {
-	Version string `json:"version"`
-	// SHA256 is the hex sha256 of the release's SHA256SUMS document.
-	SHA256 string `json:"sha256"`
-	Note   string `json:"note,omitempty"`
-}
-
 // RepoRoot returns the main module's root directory.
 func RepoRoot(t testing.TB) string {
 	t.Helper()
@@ -46,24 +39,14 @@ func RepoRoot(t testing.TB) string {
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 }
 
-// Pins reads testdata/pins.json.
-func Pins(t testing.TB) map[string]Pin {
+// Ref returns the ref testdata/pins.json pins for source.
+func Ref(t testing.TB, source string) provider.Ref {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(RepoRoot(t), "testdata", "pins.json"))
+	all, err := pins.Read(filepath.Join(RepoRoot(t), "testdata", "pins.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var pins map[string]Pin
-	if err := json.Unmarshal(b, &pins); err != nil {
-		t.Fatal(err)
-	}
-	return pins
-}
-
-// Ref returns the pinned ref for source.
-func Ref(t testing.TB, source string) provider.Ref {
-	t.Helper()
-	p, ok := Pins(t)[source]
+	p, ok := all[source]
 	if !ok {
 		t.Fatalf("testdata/pins.json has no %s", source)
 	}
@@ -152,12 +135,17 @@ func Launcher(t testing.TB, log *slog.Logger, withTestProvider bool) provider.La
 	return l
 }
 
-// Logger returns a slog logger writing to the test log. Lines written after
-// the test finished (late provider output) are dropped.
+// Logger returns a slog logger writing to the test log (see Writer).
 func Logger(t testing.TB) *slog.Logger {
+	return slog.New(slog.NewTextHandler(Writer(t), &slog.HandlerOptions{Level: slog.LevelDebug}))
+}
+
+// Writer returns a writer to the test log, one t.Log per write. Writes
+// after the test finished (late provider output) are dropped.
+func Writer(t testing.TB) io.Writer {
 	w := &testWriter{t: t}
 	t.Cleanup(func() { w.done.Store(true) })
-	return slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	return w
 }
 
 type testWriter struct {

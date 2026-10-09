@@ -33,12 +33,6 @@ func newScrubber(paths []string) *scrubber {
 	return s
 }
 
-// State scrubs every sensitive attribute of typeName's block and every
-// --scrub path.
-func (s *scrubber) State(typeName string, b *schema.Block, v cty.Value) cty.Value {
-	return s.block(typeName, b, v)
-}
-
 // Reset forgets the hits so far; the recorder resets per resource.
 func (s *scrubber) Reset() { s.hits = map[string]bool{} }
 
@@ -52,7 +46,9 @@ func (s *scrubber) Hits() []string {
 	return out
 }
 
-func (s *scrubber) block(prefix string, b *schema.Block, v cty.Value) cty.Value {
+// State scrubs every sensitive attribute of block b and every --scrub path
+// in v; prefix is the resource type, or the path of a nested block.
+func (s *scrubber) State(prefix string, b *schema.Block, v cty.Value) cty.Value {
 	if v.IsNull() || !v.IsKnown() || !v.Type().IsObjectType() {
 		return v
 	}
@@ -75,7 +71,7 @@ func (s *scrubber) block(prefix string, b *schema.Block, v cty.Value) cty.Value 
 		}
 		if a.NestedType != nil {
 			nested := &schema.Block{Attributes: a.NestedType.Attributes}
-			attrs[name] = eachObject(av, func(o cty.Value) cty.Value { return s.block(p, nested, o) })
+			attrs[name] = schema.MapObjects(av, func(o cty.Value) cty.Value { return s.State(p, nested, o) })
 		}
 	}
 	for name, nb := range b.Blocks {
@@ -91,44 +87,9 @@ func (s *scrubber) block(prefix string, b *schema.Block, v cty.Value) cty.Value 
 			}
 			continue
 		}
-		attrs[name] = eachObject(bv, func(o cty.Value) cty.Value { return s.block(p, nb.Block, o) })
+		attrs[name] = schema.MapObjects(bv, func(o cty.Value) cty.Value { return s.State(p, nb.Block, o) })
 	}
 	return cty.ObjectVal(attrs)
-}
-
-// eachObject applies fn to v when v is an object, or to each element of a
-// list, set or map of objects.
-func eachObject(v cty.Value, fn func(cty.Value) cty.Value) cty.Value {
-	if v.IsNull() || !v.IsKnown() {
-		return v
-	}
-	ty := v.Type()
-	switch {
-	case ty.IsObjectType():
-		return fn(v)
-	case ty.IsListType(), ty.IsSetType():
-		if v.LengthInt() == 0 {
-			return v
-		}
-		elems := v.AsValueSlice()
-		for i, e := range elems {
-			elems[i] = fn(e)
-		}
-		if ty.IsListType() {
-			return cty.ListVal(elems)
-		}
-		return cty.SetVal(elems)
-	case ty.IsMapType():
-		if v.LengthInt() == 0 {
-			return v
-		}
-		elems := v.AsValueMap()
-		for k, e := range elems {
-			elems[k] = fn(e)
-		}
-		return cty.MapVal(elems)
-	}
-	return v
 }
 
 // scrubLeaves replaces every known string inside v with Scrubbed.
