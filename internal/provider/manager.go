@@ -18,8 +18,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 
@@ -80,7 +78,8 @@ type Resource struct {
 // SchemaResult is a provider's schema and its identity.
 type SchemaResult struct {
 	Schema *schema.ProviderSchema
-	JSON   []byte
+	// JSON is the schema document (schema.Marshal of Schema).
+	JSON   string
 	SHA256 string
 }
 
@@ -169,13 +168,13 @@ func (m *Manager) Schema(ctx context.Context, ref Ref) (*SchemaResult, error) {
 		return nil, err
 	}
 	m.mu.Lock()
-	cached := m.schemas[refKey(ref)]
+	res := m.schemas[refKey(ref)]
 	m.mu.Unlock()
-	if cached != nil {
+	if res != nil {
 		if _, err := m.resolve(ctx, ref); err != nil {
 			return nil, err
 		}
-		return cached, nil
+		return res, nil
 	}
 
 	unlock, err := m.lock(ctx, ref)
@@ -188,82 +187,22 @@ func (m *Manager) Schema(ctx context.Context, ref Ref) (*SchemaResult, error) {
 		return nil, err
 	}
 	// Another caller may have fetched it while this one waited.
-	m.mu.Lock()
-	cached = m.schemas[refKey(ref)]
-	m.mu.Unlock()
-	if cached != nil {
-		return cached, nil
+	if res := m.knownSchema(rel); res != nil {
+		return res, nil
 	}
-
-	res, err := m.loadSchemaFile(rel)
-	if err != nil {
-		inst, err := m.start(ctx, rel)
-		if err != nil {
-			return nil, err
-		}
-		s, diags, err := inst.GetSchema(ctx)
-		inst.Kill()
-		if err != nil {
-			return nil, newError(CodeUnavailable, fmt.Sprintf("%s: get schema", ref), err)
-		}
-		if diags.HasErrors() {
-			return nil, diagError(CodeFailedPrecondition, fmt.Sprintf("%s: get schema", ref), diags)
-		}
-		if res, err = m.storeSchema(rel, s); err != nil {
-			return nil, err
-		}
-	}
-	m.mu.Lock()
-	m.schemas[refKey(ref)] = res
-	m.mu.Unlock()
-	return res, nil
-}
-
-// schemaCacheFile names the on-disk schema cache. Bump the revision
-// whenever the conversion into the schema document changes, so caches
-// written by an older bridge are ignored rather than served.
-const schemaCacheFile = "schema.r1.json"
-
-func (m *Manager) loadSchemaFile(rel Release) (*SchemaResult, error) {
-	if rel.Dir == "" {
-		return nil, os.ErrNotExist
-	}
-	b, err := os.ReadFile(filepath.Join(rel.Dir, schemaCacheFile))
+	inst, err := m.start(ctx, rel)
 	if err != nil {
 		return nil, err
 	}
-	s, err := schema.Unmarshal(b)
+	s, diags, err := inst.GetSchema(ctx)
+	inst.Kill()
 	if err != nil {
-		m.log.Warn("ignoring invalid cached schema", "dir", rel.Dir, "error", err)
-		return nil, os.ErrNotExist
+		return nil, newError(CodeUnavailable, fmt.Sprintf("%s: get schema", ref), err)
 	}
-	if s.Source != rel.Source || s.Version != rel.Version {
-		m.log.Warn("ignoring cached schema of another release", "dir", rel.Dir,
-			"want_source", rel.Source, "want_version", rel.Version, "cached_source", s.Source, "cached_version", s.Version)
-		return nil, os.ErrNotExist
+	if diags.HasErrors() {
+		return nil, diagError(CodeFailedPrecondition, fmt.Sprintf("%s: get schema", ref), diags)
 	}
-	return &SchemaResult{Schema: s, JSON: b, SHA256: rel.SHA256}, nil
-}
-
-// storeSchema stamps the schema with its release and caches it on disk.
-func (m *Manager) storeSchema(rel Release, s *schema.ProviderSchema) (*SchemaResult, error) {
-	stamped := *s
-	stamped.Source, stamped.Version = rel.Source, rel.Version
-	b, err := schema.Marshal(&stamped)
-	if err != nil {
-		return nil, newError(CodeInternal, "marshal schema", err)
-	}
-	if rel.Dir != "" {
-		tmp := filepath.Join(rel.Dir, fmt.Sprintf(".%s.%d", schemaCacheFile, os.Getpid()))
-		werr := os.WriteFile(tmp, b, 0o644)
-		if werr == nil {
-			werr = os.Rename(tmp, filepath.Join(rel.Dir, schemaCacheFile))
-		}
-		if werr != nil {
-			m.log.Warn("cache schema", "dir", rel.Dir, "error", werr)
-		}
-	}
-	return &SchemaResult{Schema: &stamped, JSON: b, SHA256: rel.SHA256}, nil
+	return m.storeSchema(rel, s)
 }
 
 // resolve returns the verified release of ref, resolved (installed and
@@ -352,6 +291,13 @@ func (m *Manager) Configure(ctx context.Context, ref Ref, configJSON string) (tf
 	if err != nil {
 		return nil, "", err
 	}
+	known := m.knownSchema(rel)
+	if known != nil {
+		if err := inst.SetSchema(known.Schema); err != nil {
+			inst.Kill()
+			return nil, "", newError(CodeInternal, fmt.Sprintf("%s: seed schema", ref), err)
+		}
+	}
 	c, warnings, err := m.configure(ctx, ref, rel, inst, configJSON)
 	if err != nil {
 		inst.Kill()
@@ -366,16 +312,9 @@ func (m *Manager) Configure(ctx context.Context, ref Ref, configJSON string) (tf
 	}
 	m.configured[refKey(ref)] = c
 	m.mu.Unlock()
-	m.mu.Lock()
-	known := m.schemas[refKey(ref)] != nil
-	m.mu.Unlock()
-	if !known {
-		if res, err := m.storeSchema(rel, c.schema); err != nil {
+	if known == nil {
+		if _, err := m.storeSchema(rel, c.schema); err != nil {
 			log.Warn("cannot cache the schema", "error", err)
-		} else {
-			m.mu.Lock()
-			m.schemas[refKey(ref)] = res
-			m.mu.Unlock()
 		}
 	}
 	log.Info("provider configured", "protocol", inst.Protocol())

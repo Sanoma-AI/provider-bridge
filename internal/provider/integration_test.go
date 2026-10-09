@@ -39,7 +39,7 @@ func TestIntegrationNull(t *testing.T) {
 	if res.Schema.Protocol != 5 || res.SHA256 != ref.SHA256 {
 		t.Fatalf("protocol %d sha %s", res.Schema.Protocol, res.SHA256)
 	}
-	testutil.Golden(t, filepath.Join(testutil.RepoRoot(t), "testdata", "schemas", "hashicorp_null_3.3.2.json"), res.JSON)
+	testutil.Golden(t, filepath.Join(testutil.RepoRoot(t), "testdata", "schemas", "hashicorp_null_3.3.2.json"), []byte(res.JSON))
 
 	if _, _, err := m.Configure(ctx, ref, `{}`); err != nil {
 		t.Fatal(err)
@@ -82,7 +82,7 @@ func TestIntegrationTestProvider(t *testing.T) {
 	if res.Schema.Protocol != 6 {
 		t.Fatalf("protocol %d", res.Schema.Protocol)
 	}
-	testutil.Golden(t, filepath.Join(testutil.RepoRoot(t), "testdata", "schemas", "sanoma_testprov_0.0.1.json"), res.JSON)
+	testutil.Golden(t, filepath.Join(testutil.RepoRoot(t), "testdata", "schemas", "sanoma_testprov_0.0.1.json"), []byte(res.JSON))
 
 	_, _, err = m.Configure(ctx, ref, `{"api_key":"invalid"}`)
 	var perr *provider.Error

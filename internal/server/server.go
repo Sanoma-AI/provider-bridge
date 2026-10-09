@@ -56,7 +56,7 @@ func (s *Service) GetSchema(ctx context.Context, req *connect.Request[bridgev1.G
 		return nil, toConnect(ctx, err)
 	}
 	return connect.NewResponse(&bridgev1.GetSchemaResponse{
-		SchemaJson: string(res.JSON),
+		SchemaJson: res.JSON,
 		Protocol:   int32(res.Schema.Protocol),
 		Sha256:     res.SHA256,
 	}), nil

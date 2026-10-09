@@ -5,7 +5,10 @@ package provider_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -54,6 +57,58 @@ func TestSchemaIsCached(t *testing.T) {
 	// The long form of the source shares the cache entry.
 	if _, err := m.Schema(ctx, provider.Ref{Source: "registry.opentofu.org/example/fake", Version: "1.0.0"}); err != nil || l.Starts.Load() != 1 {
 		t.Fatalf("long source form: err=%v starts=%d", err, l.Starts.Load())
+	}
+	// Configure seeds its instance with the known schema.
+	if _, _, err := m.Configure(ctx, fakeRef, `{}`); err != nil {
+		t.Fatal(err)
+	}
+	if l.Starts.Load() != 2 || !l.Last().Seeded.Load() {
+		t.Fatalf("configure: starts=%d seeded=%v", l.Starts.Load(), l.Last().Seeded.Load())
+	}
+}
+
+// The schema is cached beside the release for the same bridge build only.
+func TestSchemaCacheFile(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	schemaOf := func() (*provider.SchemaResult, int32) {
+		l := &testutil.FakeLauncher{Dir: dir}
+		m := provider.NewManager(l, testutil.Logger(t))
+		t.Cleanup(m.Shutdown)
+		res, err := m.Schema(ctx, fakeRef)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res, l.Starts.Load()
+	}
+	first, starts := schemaOf()
+	if starts != 1 {
+		t.Fatalf("cold: %d starts", starts)
+	}
+	path := filepath.Join(dir, "schema.json")
+	var file struct {
+		Bridge string          `json:"bridge"`
+		Schema json.RawMessage `json:"schema"`
+	}
+	b, err := os.ReadFile(path)
+	if err != nil || json.Unmarshal(b, &file) != nil || file.Bridge == "" {
+		t.Fatalf("cache file %s: %v %s", path, err, b)
+	}
+	second, starts := schemaOf()
+	if starts != 0 || second.JSON != first.JSON {
+		t.Fatalf("warm: %d starts, same document %v", starts, second.JSON == first.JSON)
+	}
+	// Written by another build: ignored and rewritten.
+	file.Bridge = "another build"
+	b, _ = json.Marshal(file)
+	if err := os.WriteFile(path, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, starts := schemaOf(); starts != 1 {
+		t.Fatalf("other build's cache: %d starts", starts)
+	}
+	if _, starts := schemaOf(); starts != 0 {
+		t.Fatalf("rewritten cache: %d starts", starts)
 	}
 }
 

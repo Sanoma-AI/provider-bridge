@@ -30,6 +30,8 @@ type FakeLauncher struct {
 	// Gate, when set, holds every Configure with api_key "slow" until it
 	// is closed (or the call's context is done).
 	Gate chan struct{}
+	// Dir is the releases' cache directory (where the schema is cached).
+	Dir  string
 	mu   sync.Mutex
 	last *FakeProvider
 }
@@ -39,7 +41,7 @@ var _ provider.Launcher = (*FakeLauncher)(nil)
 // Resolve returns a release with FakeSHA256.
 func (l *FakeLauncher) Resolve(_ context.Context, source, version string) (provider.Release, error) {
 	l.Resolves.Add(1)
-	return provider.Release{Source: source, Version: version, SHA256: FakeSHA256, Binary: "/fake"}, nil
+	return provider.Release{Source: source, Version: version, SHA256: FakeSHA256, Binary: "/fake", Dir: l.Dir}, nil
 }
 
 // Start returns a new FakeProvider.

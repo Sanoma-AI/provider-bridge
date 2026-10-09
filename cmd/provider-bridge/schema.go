@@ -40,7 +40,7 @@ func schemaCmd(ctx context.Context, args []string, stdout, stderr io.Writer) err
 		if err != nil {
 			return err
 		}
-		_, err = stdout.Write(res.JSON)
+		_, err = io.WriteString(stdout, res.JSON)
 		return err
 	}
 
