@@ -10,11 +10,9 @@ import (
 	"io"
 
 	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/Sanoma-AI/provider-bridge/internal/plugin"
 	"github.com/Sanoma-AI/provider-bridge/internal/provider"
-	"github.com/Sanoma-AI/provider-bridge/internal/tfproto"
 )
 
 // schemaCmd prints a provider's schema document, or with --raw the
@@ -55,15 +53,7 @@ func schemaCmd(ctx context.Context, args []string, stdout, stderr io.Writer) err
 		return err
 	}
 	defer proc.Kill()
-	var msg proto.Message
-	switch p := proc.Provider.(type) {
-	case *tfproto.Client5:
-		msg, err = p.RawSchema(ctx)
-	case *tfproto.Client6:
-		msg, err = p.RawSchema(ctx)
-	default:
-		err = fmt.Errorf("unexpected client %T", p)
-	}
+	msg, err := proc.RawSchema(ctx)
 	if err != nil {
 		return err
 	}

@@ -6,11 +6,13 @@ package testutil
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
 
 	"github.com/zclconf/go-cty/cty"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/Sanoma-AI/provider-bridge/internal/provider"
 	"github.com/Sanoma-AI/provider-bridge/internal/schema"
@@ -66,7 +68,9 @@ func (l *FakeLauncher) Last() *FakeProvider {
 // attribute, extra.
 type FakeProvider struct {
 	// Upgrades counts UpgradeResourceState calls.
-	Upgrades   atomic.Int32
+	Upgrades atomic.Int32
+	// Seeded reports that SetSchema was called.
+	Seeded     atomic.Bool
 	exited     atomic.Bool
 	killed     atomic.Bool
 	configured atomic.Bool
@@ -215,5 +219,13 @@ func (p *FakeProvider) ReadResource(_ context.Context, typeName string, state ct
 	}
 }
 
-// Stop does nothing.
-func (p *FakeProvider) Stop(context.Context) error { return nil }
+// SetSchema records that the schema was seeded.
+func (p *FakeProvider) SetSchema(*schema.ProviderSchema) error {
+	p.Seeded.Store(true)
+	return nil
+}
+
+// RawSchema is not supported.
+func (p *FakeProvider) RawSchema(context.Context) (proto.Message, error) {
+	return nil, errors.New("fake provider has no raw schema")
+}

@@ -78,7 +78,7 @@ func TestInvalidType(t *testing.T) {
 }
 
 func TestDiagnostics(t *testing.T) {
-	d5 := diagnostics5([]*tfplugin5.Diagnostic{{
+	d5 := diagnostics([]*tfplugin5.Diagnostic{{
 		Severity: tfplugin5.Diagnostic_ERROR, Summary: "bad", Detail: "very",
 		Attribute: &tfplugin5.AttributePath{Steps: []*tfplugin5.AttributePath_Step{
 			{Selector: &tfplugin5.AttributePath_Step_AttributeName{AttributeName: "rules"}},
@@ -87,7 +87,7 @@ func TestDiagnostics(t *testing.T) {
 		}},
 	}, {Severity: tfplugin5.Diagnostic_WARNING, Summary: "meh"}})
 	if !d5.HasErrors() || d5[0].Attribute != "rules[0].name" || len(d5.Warnings()) != 1 {
-		t.Fatalf("diagnostics5 = %+v", d5)
+		t.Fatalf("diagnostics = %+v", d5)
 	}
 	if got := d5.Err().Error(); got != "rules[0].name: bad: very" {
 		t.Fatalf("Err = %q", got)

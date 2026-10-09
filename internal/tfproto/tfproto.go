@@ -2,13 +2,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package tfproto is the bridge's client side of the OpenTofu plugin
-// protocol. Client5 and Client6 wrap the generated gRPC stubs of protocol 5
-// and 6 behind one Provider interface carrying the calls the bridge needs,
-// with schemas in the protocol-neutral internal/schema model and values as
-// cty.
+// protocol. One client holds the protocol logic (schema caching, value
+// encoding, the provider_meta value, the import loop) above a small wire
+// adapter per protocol version (wire5, wire6) that only builds requests and
+// unpacks responses of the generated gRPC stubs. Schemas are in the
+// protocol-neutral internal/schema model and values are cty.
 //
-// Each client fetches the provider schema once and caches the implied types
-// it needs to encode and decode DynamicValues.
+// The client fetches the provider schema once (or is seeded with it, see
+// Provider.SetSchema) and derives the implied types it needs to encode and
+// decode DynamicValues from it.
 package tfproto
 
 import (
@@ -17,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/zclconf/go-cty/cty"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/Sanoma-AI/provider-bridge/internal/schema"
 )
@@ -29,8 +32,16 @@ const TerraformVersion = "1.10.0"
 type Provider interface {
 	// Protocol is the negotiated plugin protocol major version.
 	Protocol() int
-	// GetSchema returns the provider's schema (Source and Version unset).
+	// GetSchema returns the provider's schema (Source and Version unset),
+	// calling the provider once.
 	GetSchema(ctx context.Context) (*schema.ProviderSchema, Diagnostics, error)
+	// SetSchema seeds the client with the schema of the same release
+	// fetched earlier, so that no GetSchema call reaches the provider.
+	SetSchema(s *schema.ProviderSchema) error
+	// RawSchema calls the provider's GetSchema (protocol 5) or
+	// GetProviderSchema (protocol 6) and returns the unconverted response,
+	// for debugging.
+	RawSchema(ctx context.Context) (proto.Message, error)
 	// PrepareConfig validates provider configuration: PrepareProviderConfig
 	// in protocol 5 (which may return an amended config), ValidateProviderConfig
 	// in protocol 6 (which returns cfg unchanged).
@@ -44,8 +55,6 @@ type Provider interface {
 	UpgradeResourceState(ctx context.Context, typeName string, version int64, rawJSON []byte) (cty.Value, Diagnostics, error)
 	// ReadResource refreshes state; a null new state means the object is gone.
 	ReadResource(ctx context.Context, typeName string, state cty.Value, private []byte) (cty.Value, []byte, Diagnostics, error)
-	// Stop asks the provider to cancel in-flight calls.
-	Stop(ctx context.Context) error
 }
 
 // ImportedResource is one object returned by ImportResourceState.
@@ -63,16 +72,6 @@ const (
 	SeverityError Severity = iota + 1
 	SeverityWarning
 )
-
-func (s Severity) String() string {
-	switch s {
-	case SeverityError:
-		return "error"
-	case SeverityWarning:
-		return "warning"
-	}
-	return "invalid"
-}
 
 // Diagnostic is one provider diagnostic.
 type Diagnostic struct {
@@ -134,19 +133,6 @@ func (d Diagnostic) String() string {
 		s = d.Attribute + ": " + s
 	}
 	return s
-}
-
-// typeCache holds the schema a client fetched and answers implied types.
-type typeCache struct {
-	schema *schema.ProviderSchema
-}
-
-func (c *typeCache) resource(typeName string) (*schema.Resource, error) {
-	r, ok := c.schema.Resources[typeName]
-	if !ok {
-		return nil, &UnknownTypeError{TypeName: typeName}
-	}
-	return r, nil
 }
 
 // UnknownTypeError is returned for a resource type the provider lacks.

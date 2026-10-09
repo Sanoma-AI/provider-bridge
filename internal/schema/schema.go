@@ -42,9 +42,12 @@ type ProviderSchema struct {
 	FormatVersion  int                  `json:"formatVersion"`
 	Protocol       int                  `json:"protocol"`
 	ProviderConfig *Block               `json:"providerConfig"`
-	Resources      map[string]*Resource `json:"resources"`
-	Source         string               `json:"source"`
-	Version        string               `json:"version"`
+	// ProviderMeta is the provider_meta block, for the few providers that
+	// have one.
+	ProviderMeta *Block               `json:"providerMeta,omitempty"`
+	Resources    map[string]*Resource `json:"resources"`
+	Source       string               `json:"source"`
+	Version      string               `json:"version"`
 }
 
 // Resource is the schema of one resource type or data source.
@@ -230,6 +233,7 @@ func (a *Attribute) fillTypes() {
 // FillTypes fills nested attribute types throughout the schema.
 func (s *ProviderSchema) FillTypes() {
 	s.ProviderConfig.FillTypes()
+	s.ProviderMeta.FillTypes()
 	for _, r := range s.Resources {
 		r.Block.FillTypes()
 	}

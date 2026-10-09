@@ -51,28 +51,27 @@ const maxMsgSize = 256 << 20
 // pluginName is the name providers register their plugin under.
 const pluginName = "provider"
 
-type grpcPlugin5 struct {
+// grpcPlugin dispenses a tfproto.Provider for one plugin protocol version.
+type grpcPlugin struct {
 	goplugin.NetRPCUnsupportedPlugin
+	client func(*grpc.ClientConn) tfproto.Provider
 }
 
-func (grpcPlugin5) GRPCServer(*goplugin.GRPCBroker, *grpc.Server) error {
+func (grpcPlugin) GRPCServer(*goplugin.GRPCBroker, *grpc.Server) error {
 	return errors.New("provider-bridge is a plugin client only")
 }
 
-func (grpcPlugin5) GRPCClient(_ context.Context, _ *goplugin.GRPCBroker, conn *grpc.ClientConn) (any, error) {
-	return tfplugin5.NewProviderClient(conn), nil
+func (p grpcPlugin) GRPCClient(_ context.Context, _ *goplugin.GRPCBroker, conn *grpc.ClientConn) (any, error) {
+	return p.client(conn), nil
 }
 
-type grpcPlugin6 struct {
-	goplugin.NetRPCUnsupportedPlugin
-}
-
-func (grpcPlugin6) GRPCServer(*goplugin.GRPCBroker, *grpc.Server) error {
-	return errors.New("provider-bridge is a plugin client only")
-}
-
-func (grpcPlugin6) GRPCClient(_ context.Context, _ *goplugin.GRPCBroker, conn *grpc.ClientConn) (any, error) {
-	return tfplugin6.NewProviderClient(conn), nil
+var plugins = map[int]goplugin.PluginSet{
+	5: {pluginName: grpcPlugin{client: func(conn *grpc.ClientConn) tfproto.Provider {
+		return tfproto.NewClient5(tfplugin5.NewProviderClient(conn))
+	}}},
+	6: {pluginName: grpcPlugin{client: func(conn *grpc.ClientConn) tfproto.Provider {
+		return tfproto.NewClient6(tfplugin6.NewProviderClient(conn))
+	}}},
 }
 
 // Config describes one provider process.
@@ -109,11 +108,8 @@ func Start(cfg Config) (*Process, error) {
 
 	stderr := &lineLogger{log: log.With("logger", "provider."+cfg.Name)}
 	client := goplugin.NewClient(&goplugin.ClientConfig{
-		HandshakeConfig: Handshake,
-		VersionedPlugins: map[int]goplugin.PluginSet{
-			5: {pluginName: grpcPlugin5{}},
-			6: {pluginName: grpcPlugin6{}},
-		},
+		HandshakeConfig:  Handshake,
+		VersionedPlugins: plugins,
 		Cmd:              cmd,
 		AllowedProtocols: []goplugin.Protocol{goplugin.ProtocolGRPC},
 		AutoMTLS:         true,
@@ -138,16 +134,12 @@ func Start(cfg Config) (*Process, error) {
 		stderr.flush()
 		return nil, fmt.Errorf("start provider %s: %w", cfg.Name, err)
 	}
-	p := &Process{client: client, stderr: stderr}
-	switch c := raw.(type) {
-	case tfplugin5.ProviderClient:
-		p.Provider = tfproto.NewClient5(c)
-	case tfplugin6.ProviderClient:
-		p.Provider = tfproto.NewClient6(c)
-	default:
+	prov, ok := raw.(tfproto.Provider)
+	if !ok {
 		client.Kill()
 		return nil, fmt.Errorf("start provider %s: unexpected client %T", cfg.Name, raw)
 	}
+	p := &Process{Provider: prov, client: client, stderr: stderr}
 	log.Debug("provider started", "provider", cfg.Name, "protocol", client.NegotiatedVersion(), "binary", cfg.Binary)
 	return p, nil
 }
