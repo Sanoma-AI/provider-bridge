@@ -14,7 +14,7 @@ Sanoma keeps a company's operational configuration in typed code and applies it 
 | requires replacement | `immutable`, UI warns before recreate |
 | nested block | nested form section |
 
-It lives in its own repo because it uses the Go toolchain and ships binaries. The reverse direction, publishing Sanoma connectors as a provider, is [`terraform-provider-sanoma`](https://github.com/Sanoma-AI/terraform-provider-sanoma).
+It lives in its own repo because it uses the Go toolchain and ships binaries.
 
 ## Status
 
