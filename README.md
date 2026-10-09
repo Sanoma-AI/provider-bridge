@@ -71,7 +71,7 @@ gRPC and the Connect binary protocol work too, over HTTP/2 without TLS.
 
 | RPC | Request | Response | Notes |
 | --- | --- | --- | --- |
-| `GetSchema` | `provider` | `schemaJson`, `protocol` (5 or 6), `sha256` | No credentials. Starts an unconfigured provider once, then serves from memory and from `schema.json` in the cache. |
+| `GetSchema` | `provider` | `schemaJson`, `protocol` (5 or 6), `sha256` | No credentials. Starts an unconfigured provider once, then serves from memory and from a copy cached beside the binary. |
 | `Configure` | `provider`, `configJson` | `warnings`, `sha256` | Starts a long-lived provider and configures it. Same config again: no-op. Another config for the same (source, version): `FAILED_PRECONDITION` until `Close`. |
 | `Import` | `provider`, `typeName`, `id` | `resources[]`, `warnings` | `ImportResourceState`, then `ReadResource` on each result. A missing object: `NOT_FOUND` (or the provider's own error). |
 | `Read` | `provider`, `typeName`, `stateJson`, `private` | `resource`, `gone`, `warnings` | Refresh from the vendor. `gone: true` when the object no longer exists. |

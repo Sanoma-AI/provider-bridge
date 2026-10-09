@@ -49,7 +49,7 @@ type Release struct {
 	// dev override: of the binary).
 	SHA256 string
 	Binary string
-	// Dir, when set, is where schema.json is cached.
+	// Dir, when set, is where the schema document is cached.
 	Dir string
 }
 
@@ -120,8 +120,7 @@ func NewManager(launcher Launcher, log *slog.Logger) *Manager {
 	}
 }
 
-// refKey is the map key for a ref before resolution; sources are compared
-// as given, so callers should use one spelling per provider.
+// refKey is the map key of a normalized ref.
 func refKey(ref Ref) string { return ref.Source + "@" + ref.Version }
 
 // normalize validates ref and spells its source in short form, so
@@ -149,8 +148,8 @@ func checkPin(ref Ref, sha string) error {
 	return nil
 }
 
-// Schema returns the provider's schema, from memory, from schema.json in
-// the release's cache directory, or by starting an unconfigured instance.
+// Schema returns the provider's schema, from memory, from the schema cached
+// in the release's cache directory, or by starting an unconfigured instance.
 func (m *Manager) Schema(ctx context.Context, ref Ref) (*SchemaResult, error) {
 	ref, err := normalize(ref)
 	if err != nil {
@@ -200,17 +199,22 @@ func (m *Manager) Schema(ctx context.Context, ref Ref) (*SchemaResult, error) {
 	return res, nil
 }
 
+// schemaCacheFile names the on-disk schema cache. Bump the revision
+// whenever the conversion into the schema document changes, so caches
+// written by an older bridge are ignored rather than served.
+const schemaCacheFile = "schema.r1.json"
+
 func (m *Manager) loadSchemaFile(rel Release) (*SchemaResult, error) {
 	if rel.Dir == "" {
 		return nil, os.ErrNotExist
 	}
-	b, err := os.ReadFile(filepath.Join(rel.Dir, "schema.json"))
+	b, err := os.ReadFile(filepath.Join(rel.Dir, schemaCacheFile))
 	if err != nil {
 		return nil, err
 	}
 	s, err := schema.Unmarshal(b)
 	if err != nil || s.Source != rel.Source || s.Version != rel.Version {
-		m.log.Warn("ignoring stale schema.json", "dir", rel.Dir, "error", err)
+		m.log.Warn("ignoring invalid cached schema", "dir", rel.Dir, "error", err)
 		return nil, os.ErrNotExist
 	}
 	return &SchemaResult{Schema: s, JSON: b, SHA256: rel.SHA256}, nil
@@ -225,13 +229,13 @@ func (m *Manager) storeSchema(rel Release, s *schema.ProviderSchema) (*SchemaRes
 		return nil, newError(CodeInternal, "marshal schema", err)
 	}
 	if rel.Dir != "" {
-		tmp := filepath.Join(rel.Dir, fmt.Sprintf(".schema.json.%d", os.Getpid()))
-		if err := os.WriteFile(tmp, b, 0o644); err == nil {
-			if err := os.Rename(tmp, filepath.Join(rel.Dir, "schema.json")); err != nil {
-				m.log.Warn("cache schema.json", "error", err)
-			}
-		} else {
-			m.log.Warn("cache schema.json", "error", err)
+		tmp := filepath.Join(rel.Dir, fmt.Sprintf(".%s.%d", schemaCacheFile, os.Getpid()))
+		werr := os.WriteFile(tmp, b, 0o644)
+		if werr == nil {
+			werr = os.Rename(tmp, filepath.Join(rel.Dir, schemaCacheFile))
+		}
+		if werr != nil {
+			m.log.Warn("cache schema", "dir", rel.Dir, "error", werr)
 		}
 	}
 	return &SchemaResult{Schema: &stamped, JSON: b, SHA256: rel.SHA256}, nil
