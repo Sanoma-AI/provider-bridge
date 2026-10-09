@@ -5,6 +5,8 @@ package schema_test
 
 import (
 	"bytes"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/zclconf/go-cty/cty"
@@ -15,7 +17,7 @@ import (
 )
 
 func attr(ty cty.Type, flags ...string) *schema.Attribute {
-	a := &schema.Attribute{Type: schema.Type{ty}}
+	a := &schema.Attribute{Type: ty}
 	for _, f := range flags {
 		switch f {
 		case "required":
@@ -104,6 +106,30 @@ func TestDocumentGoldenAndRoundTrip(t *testing.T) {
 	}
 }
 
+func TestMarshalRefusesUntypedAttribute(t *testing.T) {
+	s := sample()
+	s.Resources["sample_item"].Block.Blocks["rule"].Block.Attributes["bad"] = &schema.Attribute{Optional: true}
+	if _, err := schema.Marshal(s); err == nil || !strings.Contains(err.Error(), "sample_item.rule.bad") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// ImpliedType is computed once and safe to call concurrently.
+func TestImpliedTypeConcurrent(t *testing.T) {
+	b := sample().Resources["sample_item"].Block
+	var wg sync.WaitGroup
+	types := make([]cty.Type, 8)
+	for i := range types {
+		wg.Go(func() { types[i] = b.ImpliedType() })
+	}
+	wg.Wait()
+	for _, ty := range types[1:] {
+		if !ty.Equals(types[0]) {
+			t.Fatal("implied types differ")
+		}
+	}
+}
+
 func TestUnmarshalRejectsOtherFormat(t *testing.T) {
 	if _, err := schema.Unmarshal([]byte(`{"formatVersion":2}`)); err == nil {
 		t.Fatal("accepted formatVersion 2")
@@ -135,7 +161,7 @@ func TestImpliedType(t *testing.T) {
 	}
 	// FillTypes gave nested attributes their implied type.
 	if s := sample().Resources["sample_item"].Block.Attributes["settings"]; !s.Type.Equals(want.AttributeType("settings")) {
-		t.Fatalf("settings type = %#v", s.Type.Type)
+		t.Fatalf("settings type = %#v", s.Type)
 	}
 }
 

@@ -84,9 +84,9 @@ var _ provider.Instance = (*FakeProvider)(nil)
 func fakeThing() *schema.Block {
 	return &schema.Block{
 		Attributes: map[string]*schema.Attribute{
-			"id":     {Type: schema.Type{Type: cty.String}, Computed: true},
-			"name":   {Type: schema.Type{Type: cty.String}, Computed: true},
-			"secret": {Type: schema.Type{Type: cty.String}, Optional: true, Sensitive: true},
+			"id":     {Type: cty.String, Computed: true},
+			"name":   {Type: cty.String, Computed: true},
+			"secret": {Type: cty.String, Optional: true, Sensitive: true},
 		},
 		Blocks: map[string]*schema.NestedBlock{},
 	}
@@ -99,8 +99,8 @@ func FakeSchema() *schema.ProviderSchema {
 		Protocol:      6,
 		ProviderConfig: &schema.Block{
 			Attributes: map[string]*schema.Attribute{
-				"api_key": {Type: schema.Type{Type: cty.String}, Optional: true, Sensitive: true},
-				"extra":   {Type: schema.Type{Type: cty.DynamicPseudoType}, Optional: true},
+				"api_key": {Type: cty.String, Optional: true, Sensitive: true},
+				"extra":   {Type: cty.DynamicPseudoType, Optional: true},
 			},
 			Blocks: map[string]*schema.NestedBlock{},
 		},
@@ -108,8 +108,8 @@ func FakeSchema() *schema.ProviderSchema {
 			"fake_thing": {SchemaVersion: 1, Block: fakeThing()},
 			"fake_dyn": {Block: &schema.Block{
 				Attributes: map[string]*schema.Attribute{
-					"id":    {Type: schema.Type{Type: cty.String}, Required: true},
-					"value": {Type: schema.Type{Type: cty.DynamicPseudoType}, Optional: true},
+					"id":    {Type: cty.String, Required: true},
+					"value": {Type: cty.DynamicPseudoType, Optional: true},
 				},
 				Blocks: map[string]*schema.NestedBlock{},
 			}},

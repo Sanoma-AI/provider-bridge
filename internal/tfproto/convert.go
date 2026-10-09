@@ -32,12 +32,12 @@ func descriptionKind(markdown bool, description string) string {
 	}
 }
 
-func attrType(name string, raw []byte) (schema.Type, error) {
+func attrType(name string, raw []byte) (cty.Type, error) {
 	ty, err := ctyjson.UnmarshalType(raw)
 	if err != nil {
-		return schema.Type{}, fmt.Errorf("attribute %s: invalid type %q: %w", name, raw, err)
+		return cty.NilType, fmt.Errorf("attribute %s: invalid type %q: %w", name, raw, err)
 	}
-	return schema.Type{Type: ty}, nil
+	return ty, nil
 }
 
 // schemaMsg is a protocol's Schema message (*tfplugin5.Schema,

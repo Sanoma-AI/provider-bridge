@@ -57,7 +57,7 @@ func TestBlockAndNestedAttributeAgree(t *testing.T) {
 		t.Fatalf("protocol 5 %#v != protocol 6 %#v", t5, t6)
 	}
 	want := cty.List(cty.Object(map[string]cty.Type{"name": cty.String, "secret": cty.String}))
-	if got := s6.Resources["x_item"].Block.Attributes["rule"].Type.Type; !got.Equals(want) {
+	if got := s6.Resources["x_item"].Block.Attributes["rule"].Type; !got.Equals(want) {
 		t.Fatalf("nested attribute type = %#v", got)
 	}
 	if !s6.Resources["x_item"].Block.Attributes["rule"].NestedType.Attributes["secret"].Sensitive {
