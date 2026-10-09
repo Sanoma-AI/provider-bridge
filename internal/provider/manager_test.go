@@ -169,6 +169,9 @@ func TestConfigureLifecycle(t *testing.T) {
 	if _, _, err := m.Import(ctx, fakeRef, "fake_thing", "a"); code(err) != provider.CodeFailedPrecondition {
 		t.Fatalf("import before configure: %v", err)
 	}
+	if l.Resolves.Load() != 0 {
+		t.Fatal("import before configure resolved the release")
+	}
 	warnings, sha, err := m.Configure(ctx, fakeRef, `{"api_key":"k"}`)
 	if err != nil {
 		t.Fatal(err)

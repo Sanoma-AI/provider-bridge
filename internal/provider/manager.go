@@ -360,14 +360,15 @@ func (m *Manager) instance(ctx context.Context, ref Ref) (Ref, *configured, erro
 	if err != nil {
 		return ref, nil, err
 	}
-	if _, err := m.resolve(ctx, ref); err != nil {
-		return ref, nil, err
-	}
 	m.mu.Lock()
 	c := m.configured[refKey(ref)]
 	m.mu.Unlock()
 	if c == nil {
 		return ref, nil, newError(CodeFailedPrecondition, fmt.Sprintf("%s is not configured; call Configure first", ref), nil)
+	}
+	// Configure resolved the release, so this only checks the pin.
+	if _, err := m.resolve(ctx, ref); err != nil {
+		return ref, nil, err
 	}
 	if c.inst.Exited() {
 		m.remove(refKey(ref), c)
