@@ -26,10 +26,19 @@ A Go sidecar that runs OpenTofu providers (plugin protocol 5 and 6) and serves `
 
 ## Rules
 
-- Toolchain from `.mise.toml` (`mise install`; prefix commands with `mise x --` if PATH lacks them).
-- Before committing: `make lint` (golangci-lint, includes govet), `make test` (`go test -race ./...` with the test provider built once), `make test-short`, `make check-fresh`.
-- Changed `go.mod`? Run `make vendor` and commit `vendor/`. Changed `proto/`? Run `make generate` and commit `gen/`.
-- `terraform-plugin-go` and `terraform-plugin-framework` must never be imported by the main module (CI guard: `make guard`). They belong in `testprovider/` only.
+- Toolchain and tasks from `.mise.toml`: `mise install` once, then `mise run <task>` (`mise tasks` lists them). Each task calls the Makefile target of the same name, so `mise x -- make <target>` is the same thing. Run plain `go` commands as `mise x -- go …`: on some machines `go` on PATH is another version (or use `mise activate` / mise's shims). `GOTOOLCHAIN=local` is set, so Go never downloads a toolchain.
+
+  | Task | What |
+  | --- | --- |
+  | `check` | what CI runs: `check-fresh`, `lint`, `test` |
+  | `test` / `test-short` | `go test -race ./...` with the test provider built once / unit tests only, no network |
+  | `lint` | golangci-lint, includes govet |
+  | `check-fresh` | `go mod verify`, `vendor/` and `gen/` fresh, `guard` |
+  | `vendor` / `generate` | re-vendor / regenerate `gen/` |
+
+- Before committing: `mise run check` (or at least `mise run lint` and `mise run test-short`).
+- Changed `go.mod`? Run `mise run vendor` and commit `vendor/`. Changed `proto/`? Run `mise run generate` and commit `gen/`.
+- `terraform-plugin-go` and `terraform-plugin-framework` must never be imported by the main module (CI guard: `mise run guard`). They belong in `testprovider/` only.
 - Never edit `proto/tfplugin5` or `proto/tfplugin6`; replace them from upstream and update `UPSTREAM`.
 - Downloaded providers are untrusted data: they live in the cache, never in the repo; only the verified binary is executed, through go-plugin.
 - Providers come from registry.opentofu.org only (`--allow-host` adds hosts). A trusted key in `internal/registry/keys` needs a provenance row in its `README.md`; never accept unsigned releases or "pin-only" releases.

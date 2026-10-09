@@ -1,4 +1,64 @@
+# The repo's toolchain and tasks: `mise install` once, then `mise run <task>`.
+# Each task calls the Makefile target of the same name, which stays the one
+# definition of what it does; `mise x -- make <target>` is the same command.
+
 [tools]
 buf = "1.73.0"
 go = "1.26.9"
 golangci-lint = "2.14.0"
+
+[env]
+# Build with the pinned Go only; never download another toolchain.
+GOTOOLCHAIN = "local"
+
+[tasks.build]
+description = "Build bin/provider-bridge and bin/bridge-record"
+run = "make build"
+
+[tasks.generate]
+description = "Regenerate gen/ from proto/ with buf"
+run = "make generate"
+
+[tasks.vendor]
+description = "go mod tidy, then re-vendor the main module"
+run = "make vendor"
+
+[tasks.lint]
+description = "golangci-lint (includes govet)"
+run = "make lint"
+
+[tasks.testprov]
+description = "Build the protocol 6 test provider into bin/"
+run = "make testprov"
+
+[tasks.test]
+description = "All tests, including network and provider-process tests"
+run = "make test"
+
+[tasks.test-short]
+description = "Unit tests only, no network"
+run = "make test-short"
+
+[tasks.test-integration]
+description = "Provider-process tests only"
+run = "make test-integration"
+
+[tasks.record]
+description = "Re-record GitHub fixtures and the Stripe schema (needs gh auth; never in CI)"
+run = "make record"
+
+[tasks.check-fresh]
+description = "go mod verify; vendor/ and gen/ match go.mod and proto/; runs guard"
+run = "make check-fresh"
+
+[tasks.guard]
+description = "Fail if cmd/provider-bridge links terraform-plugin-go"
+run = "make guard"
+
+[tasks.clean]
+description = "Remove bin/"
+run = "make clean"
+
+[tasks.check]
+description = "What CI runs, in order: check-fresh (with guard), lint (with govet), test"
+run = [{ task = "check-fresh" }, { task = "lint" }, { task = "test" }]

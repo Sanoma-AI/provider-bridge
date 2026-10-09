@@ -1,9 +1,16 @@
-# Tools come from .mise.toml; run `mise install` once, then `make <target>`.
+# Tools and their environment come from .mise.toml: run `mise install` once,
+# then `mise run <target>` (or `mise x -- make <target>`, the same thing).
+# A bare `make <target>` works too: when mise is installed, every tool runs
+# through `mise x --`, so the pinned Go is used even when PATH finds another
+# one first (under `mise run` it resolves the same tools). `make MISE=` uses PATH.
 # The main module builds from vendor/ (Go selects -mod=vendor automatically).
 
-GO       ?= go
-BUF      ?= buf
-LINT     ?= golangci-lint
+MISE     ?= $(shell command -v mise 2>/dev/null)
+TOOL     := $(if $(MISE),$(MISE) x --)
+GO       ?= $(TOOL) go
+BUF      ?= $(TOOL) buf
+# Not LINT: make 3.81 (macOS) predefines LINT = lint, so ?= would never apply.
+GOLANGCI ?= $(TOOL) golangci-lint
 BINDIR   ?= bin
 # The protocol 6 test provider, built once and handed to the tests.
 TESTPROV ?= $(abspath $(BINDIR))/terraform-provider-testprov
@@ -29,7 +36,7 @@ vendor:
 
 ## lint: golangci-lint (its standard linters include govet)
 lint:
-	$(LINT) run
+	$(GOLANGCI) run
 
 ## testprov: build the protocol 6 test provider (separate module, not vendored)
 testprov:
