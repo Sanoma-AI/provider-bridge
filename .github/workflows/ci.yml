@@ -28,8 +28,8 @@ jobs:
             ~/go/pkg/mod
           key: go-verify-${{ runner.os }}-${{ hashFiles('go.sum', 'testprovider/go.sum') }}
       # go mod verify, vendor/ and gen/ freshness, terraform-plugin-go guard
-      - run: make check-fresh
-      - run: make lint
+      - run: mise run check-fresh
+      - run: mise run lint
 
   test:
     if: github.event_name != 'schedule'
@@ -52,7 +52,7 @@ jobs:
           path: ~/.cache/provider-bridge-test/registry.opentofu.org
           key: providers-${{ runner.os }}-${{ hashFiles('testdata/pins.json') }}
       # Builds the protocol 6 test provider once (bin/), then runs every test.
-      - run: make test
+      - run: mise run test
 
   govulncheck:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'

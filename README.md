@@ -20,11 +20,11 @@ It lives in its own repo because it uses the Go toolchain and ships binaries.
 
 ## Running it
 
-Tools are pinned in `.mise.toml` (Go 1.26, buf, golangci-lint v2):
+Tools are pinned in `.mise.toml` (Go 1.26, buf, golangci-lint v2); see [Development](#development):
 
 ```sh
 mise install
-make build                      # bin/provider-bridge, bin/bridge-record
+mise run build                  # bin/provider-bridge, bin/bridge-record
 bin/provider-bridge serve --socket /tmp/bridge.sock --cache-dir ~/.cache/provider-bridge
 ```
 
@@ -125,17 +125,13 @@ The bridge starts each provider as a child process and stops it on `Close`, and 
 
 ## Development
 
-```sh
-make test-short        # unit tests, no network
-make test              # plus integration: downloads hashicorp/null 3.3.2 into provider-bridge-test in the user cache directory,
-                       # builds testprovider/ (a protocol 6 Plugin Framework provider) once into bin/
-                       # (PROVIDER_BRIDGE_TESTPROV), runs the server end to end
-make lint              # golangci-lint (includes govet)
-make generate          # regenerate gen/ from proto/ with buf (protoc plugins are go.mod tools)
-make vendor            # go mod tidy + go mod vendor
-make check-fresh       # what CI checks: go mod verify, vendor/ and gen/ up to date, no terraform-plugin-go
-go test ./internal/schema ./internal/provider -update   # rewrite golden files
-```
+### Toolchain
+
+[mise](https://mise.jdx.dev) is the one entry point: `.mise.toml` pins Go, buf and golangci-lint, sets `GOTOOLCHAIN=local` (Go never downloads another toolchain), and defines a task per Makefile target. Run `mise install` once, then `mise run <task>`; `mise tasks` describes every task. `mise run check` runs what CI's verify and test jobs run, in order: `check-fresh` (`go mod verify`, `vendor/` and `gen/` up to date, `guard`), `lint` (golangci-lint, includes govet) and `test`.
+
+`test` downloads hashicorp/null 3.3.2 into `provider-bridge-test` in the user cache directory, builds `testprovider/` (a protocol 6 Plugin Framework provider) once into `bin/` (`PROVIDER_BRIDGE_TESTPROV`) and runs the server end to end; `test-short` is the unit tests only, no network; `guard` fails if `cmd/provider-bridge` links terraform-plugin-go.
+
+A bare `make <target>` also uses the pinned tools when mise is installed (the Makefile runs each tool through `mise x --`; run `mise trust` once if mise says the config is not trusted, or `make MISE=` to use PATH). Plain `go` commands do not: if `go` in your shell resolves to another install, run `mise activate` in your shell profile (or put mise's shims directory first on PATH), or prefix them with `mise x --`. To rewrite golden files: `mise x -- go test ./internal/schema ./internal/provider -update`.
 
 Layout: `cmd/provider-bridge` (the sidecar), `cmd/bridge-record` (fixture recorder), `internal/registry` (download, verification, trusted keys), `internal/plugin` (go-plugin client), `internal/tfproto` (one plugin protocol client over protocol 5 and 6 wire adapters), `internal/pins` (`testdata/pins.json` reader), `internal/schema` (schema model and document), `internal/values` (JSON, cty, msgpack), `internal/provider` (instance manager), `internal/server` (Connect handlers, socket), `testprovider/` (separate module), `testdata/` (pins, schemas, replies; see [testdata/README.md](testdata/README.md)).
 
@@ -154,7 +150,7 @@ STRIPE_API_KEY=sk_test_… go run ./cmd/bridge-record \
   --import stripe_product=prod_… --import stripe_webhook_endpoint=we_…
 ```
 
-`make record` re-records the committed GitHub fixtures and the Stripe schema.
+`mise run record` re-records the committed GitHub fixtures and the Stripe schema.
 
 ## License
 

@@ -26,10 +26,10 @@ A Go sidecar that runs OpenTofu providers (plugin protocol 5 and 6) and serves `
 
 ## Rules
 
-- Toolchain from `.mise.toml` (`mise install`; prefix commands with `mise x --` if PATH lacks them).
-- Before committing: `make lint` (golangci-lint, includes govet), `make test` (`go test -race ./...` with the test provider built once), `make test-short`, `make check-fresh`.
-- Changed `go.mod`? Run `make vendor` and commit `vendor/`. Changed `proto/`? Run `make generate` and commit `gen/`.
-- `terraform-plugin-go` and `terraform-plugin-framework` must never be imported by the main module (CI guard: `make guard`). They belong in `testprovider/` only.
+- Toolchain and tasks from `.mise.toml`: `mise install` once, then `mise run <task>`; `mise tasks` describes them and `mise run check` is what CI runs (`check-fresh`, `lint`, `test`). Plain `go` commands: `mise x -- go …` (`go` on PATH may be another version).
+- Before committing: `mise run lint` and `mise run test` (or `test-short`). Before pushing, on a clean tree: `mise run check` (`check-fresh` rewrites and diffs `vendor/` and `gen/`, so it fails on uncommitted changes there).
+- Changed `go.mod`? Run `mise run vendor` and commit `vendor/`. Changed `proto/`? Run `mise run generate` and commit `gen/`.
+- `terraform-plugin-go` and `terraform-plugin-framework` must never be imported by the main module (CI guard: `mise run guard`). They belong in `testprovider/` only.
 - Never edit `proto/tfplugin5` or `proto/tfplugin6`; replace them from upstream and update `UPSTREAM`.
 - Downloaded providers are untrusted data: they live in the cache, never in the repo; only the verified binary is executed, through go-plugin.
 - Providers come from registry.opentofu.org only (`--allow-host` adds hosts). A trusted key in `internal/registry/keys` needs a provenance row in its `README.md`; never accept unsigned releases or "pin-only" releases.

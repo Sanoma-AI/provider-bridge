@@ -78,7 +78,7 @@ var (
 	buildErr  error
 )
 
-// TestProviderEnv names an already built test provider (`make testprov`);
+// TestProviderEnv names an already built test provider (`mise run testprov`);
 // when it is set, tests use that binary instead of building their own.
 const TestProviderEnv = "PROVIDER_BRIDGE_TESTPROV"
 
