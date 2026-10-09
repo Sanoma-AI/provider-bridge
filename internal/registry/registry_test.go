@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func readTestdata(t *testing.T, name string) []byte {
@@ -276,6 +277,25 @@ func TestInstall(t *testing.T) {
 	if err != nil || len(vs) != 1 || vs[0].Version != "1.0.0" {
 		t.Fatalf("Versions = %+v, %v", vs, err)
 	}
+}
+
+func TestLockFileHonoursContext(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "x.lock")
+	unlock, err := lockFile(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if _, err := lockFile(ctx, path); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("second lock: %v", err)
+	}
+	unlock()
+	unlock2, err := lockFile(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unlock2()
 }
 
 func TestInstallRefusesUnknownSigner(t *testing.T) {

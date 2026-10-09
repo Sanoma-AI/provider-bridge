@@ -89,12 +89,12 @@ type Manager struct {
 	launcher Launcher
 	log      *slog.Logger
 
-	// opMu serializes the slow, state-changing operations (GetSchema on a
-	// cold cache, Configure, Close) so two callers never start the same
-	// provider twice. Import and Read only take mu briefly.
-	opMu sync.Mutex
-
+	// mu guards the maps and closed; it is never held across a download,
+	// a process start or a provider call. The slow operations on one
+	// (source, version), a cold GetSchema and Configure, serialize on that
+	// key's lock instead, so one slow provider never blocks another.
 	mu         sync.Mutex
+	locks      map[string]chan struct{} // by source@version
 	releases   map[string]Release       // by source@version, resolved once
 	schemas    map[string]*SchemaResult // by source@version
 	configured map[string]*configured   // by source@version
@@ -116,6 +116,7 @@ func NewManager(launcher Launcher, log *slog.Logger) *Manager {
 	return &Manager{
 		launcher:   launcher,
 		log:        log,
+		locks:      map[string]chan struct{}{},
 		releases:   map[string]Release{},
 		schemas:    map[string]*SchemaResult{},
 		configured: map[string]*configured{},
@@ -124,6 +125,23 @@ func NewManager(launcher Launcher, log *slog.Logger) *Manager {
 
 // refKey is the map key of a normalized ref.
 func refKey(ref Ref) string { return ref.Source + "@" + ref.Version }
+
+// lock takes ref's key lock, or gives up when ctx is done.
+func (m *Manager) lock(ctx context.Context, ref Ref) (unlock func(), err error) {
+	m.mu.Lock()
+	l, ok := m.locks[refKey(ref)]
+	if !ok {
+		l = make(chan struct{}, 1)
+		m.locks[refKey(ref)] = l
+	}
+	m.mu.Unlock()
+	select {
+	case l <- struct{}{}:
+		return func() { <-l }, nil
+	case <-ctx.Done():
+		return nil, newError(CodeUnavailable, fmt.Sprintf("%s: waiting for another call", ref), ctx.Err())
+	}
+}
 
 // normalize validates ref and spells its source in short form, so
 // "registry.opentofu.org/hashicorp/null" and "hashicorp/null" share state.
@@ -160,12 +178,16 @@ func (m *Manager) Schema(ctx context.Context, ref Ref) (*SchemaResult, error) {
 		return cached, nil
 	}
 
-	m.opMu.Lock()
-	defer m.opMu.Unlock()
+	unlock, err := m.lock(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	rel, err := m.resolve(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
+	// Another caller may have fetched it while this one waited.
 	m.mu.Lock()
 	cached = m.schemas[refKey(ref)]
 	m.mu.Unlock()
@@ -211,8 +233,13 @@ func (m *Manager) loadSchemaFile(rel Release) (*SchemaResult, error) {
 		return nil, err
 	}
 	s, err := schema.Unmarshal(b)
-	if err != nil || s.Source != rel.Source || s.Version != rel.Version {
+	if err != nil {
 		m.log.Warn("ignoring invalid cached schema", "dir", rel.Dir, "error", err)
+		return nil, os.ErrNotExist
+	}
+	if s.Source != rel.Source || s.Version != rel.Version {
+		m.log.Warn("ignoring cached schema of another release", "dir", rel.Dir,
+			"want_source", rel.Source, "want_version", rel.Version, "cached_source", s.Source, "cached_version", s.Version)
 		return nil, os.ErrNotExist
 	}
 	return &SchemaResult{Schema: s, JSON: b, SHA256: rel.SHA256}, nil
@@ -291,8 +318,11 @@ func (m *Manager) Configure(ctx context.Context, ref Ref, configJSON string) (tf
 	hash := ConfigHash(configJSON)
 	log := m.log.With("provider", ref.Source, "version", ref.Version, "config_sha256", hash)
 
-	m.opMu.Lock()
-	defer m.opMu.Unlock()
+	unlock, err := m.lock(ctx, ref)
+	if err != nil {
+		return nil, "", err
+	}
+	defer unlock()
 	m.mu.Lock()
 	closed := m.closed
 	m.mu.Unlock()
@@ -329,13 +359,25 @@ func (m *Manager) Configure(ctx context.Context, ref Ref, configJSON string) (tf
 	}
 	c.configHash = hash
 	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		inst.Kill()
+		return nil, "", newError(CodeUnavailable, "bridge is shutting down", nil)
+	}
 	m.configured[refKey(ref)] = c
-	if m.schemas[refKey(ref)] == nil {
-		if res, err := m.storeSchema(rel, c.schema); err == nil {
+	m.mu.Unlock()
+	m.mu.Lock()
+	known := m.schemas[refKey(ref)] != nil
+	m.mu.Unlock()
+	if !known {
+		if res, err := m.storeSchema(rel, c.schema); err != nil {
+			log.Warn("cannot cache the schema", "error", err)
+		} else {
+			m.mu.Lock()
 			m.schemas[refKey(ref)] = res
+			m.mu.Unlock()
 		}
 	}
-	m.mu.Unlock()
 	log.Info("provider configured", "protocol", inst.Protocol())
 	return warnings, rel.SHA256, nil
 }
@@ -523,34 +565,38 @@ func (m *Manager) read(ctx context.Context, ref Ref, c *configured, typeName str
 }
 
 // Close stops the configured instance of ref, or every instance when ref is
-// nil. Closing an unconfigured provider is not an error.
-func (m *Manager) Close(ref *Ref) {
-	if ref != nil {
-		if r, err := normalize(*ref); err == nil {
-			ref = &r
+// the zero Ref. Closing an unconfigured provider is not an error.
+func (m *Manager) Close(ref Ref) {
+	all := ref == Ref{}
+	if !all {
+		if r, err := normalize(ref); err == nil {
+			ref = r
 		}
 	}
-	m.opMu.Lock()
-	defer m.opMu.Unlock()
 	m.mu.Lock()
 	var victims []*configured
 	for key, c := range m.configured {
-		if ref == nil || key == refKey(*ref) {
+		if all || key == refKey(ref) {
 			victims = append(victims, c)
 			delete(m.configured, key)
 		}
 	}
 	m.mu.Unlock()
+	var wg sync.WaitGroup
 	for _, c := range victims {
-		c.inst.Kill()
-		m.log.Info("provider closed", "provider", c.rel.Source, "version", c.rel.Version)
+		wg.Go(func() {
+			c.inst.Kill()
+			m.log.Info("provider closed", "provider", c.rel.Source, "version", c.rel.Version)
+		})
 	}
+	wg.Wait()
 }
 
-// Shutdown closes every instance and refuses new Configure calls.
+// Shutdown closes every instance and refuses new Configure calls; a
+// Configure already under way kills its instance instead of keeping it.
 func (m *Manager) Shutdown() {
 	m.mu.Lock()
 	m.closed = true
 	m.mu.Unlock()
-	m.Close(nil)
+	m.Close(Ref{})
 }

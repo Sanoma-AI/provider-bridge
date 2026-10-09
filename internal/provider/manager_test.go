@@ -8,6 +8,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Sanoma-AI/provider-bridge/internal/provider"
 	"github.com/Sanoma-AI/provider-bridge/internal/registry"
@@ -173,7 +174,7 @@ func TestConfigureLifecycle(t *testing.T) {
 		t.Fatalf("configure after exit: err=%v starts=%d", err, l.Starts.Load())
 	}
 
-	m.Close(&provider.Ref{Source: "registry.opentofu.org/example/fake", Version: "1.0.0"})
+	m.Close(provider.Ref{Source: "registry.opentofu.org/example/fake", Version: "1.0.0"})
 	if !l.Last().Killed() {
 		t.Fatal("Close did not kill the instance")
 	}
@@ -223,6 +224,49 @@ func TestDynamicAttributes(t *testing.T) {
 	got, gone, _, err := m.Read(ctx, fakeRef, "fake_dyn", []byte(state), nil, nil)
 	if err != nil || gone || string(got.State) != state {
 		t.Fatalf("read = %s %v %v", got.State, gone, err)
+	}
+}
+
+// A slow Configure holds up only calls for its own provider, and only
+// until their context gives up; Shutdown during it kills its instance.
+func TestSlowConfigureBlocksOnlyItsProvider(t *testing.T) {
+	m, l := newFakeManager(t)
+	l.Gate = make(chan struct{})
+	ctx := context.Background()
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := m.Configure(ctx, fakeRef, `{"api_key":"slow"}`)
+		done <- err
+	}()
+	for l.Starts.Load() == 0 {
+		time.Sleep(time.Millisecond)
+	}
+	slow := l.Last()
+
+	other := provider.Ref{Source: "example/other", Version: "1.0.0"}
+	tctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	if _, err := m.Schema(tctx, other); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := m.Configure(tctx, other, `{}`); err != nil {
+		t.Fatal(err)
+	}
+	m.Close(other)
+
+	short, cancelShort := context.WithTimeout(ctx, 50*time.Millisecond)
+	defer cancelShort()
+	if _, err := m.Schema(short, fakeRef); code(err) != provider.CodeUnavailable {
+		t.Fatalf("schema while configuring: %v", err)
+	}
+
+	m.Shutdown()
+	close(l.Gate)
+	if err := <-done; code(err) != provider.CodeUnavailable {
+		t.Fatalf("configure across shutdown: %v", err)
+	}
+	if !slow.Killed() {
+		t.Fatal("instance configured across Shutdown left running")
 	}
 }
 

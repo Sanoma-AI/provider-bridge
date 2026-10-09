@@ -112,7 +112,7 @@ func (c *Cache) Install(ctx context.Context, src Source, version, pin string) (*
 	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
 		return nil, err
 	}
-	unlock, err := lockFile(dir + ".lock")
+	unlock, err := lockFile(ctx, dir+".lock")
 	if err != nil {
 		return nil, err
 	}
@@ -337,14 +337,28 @@ func FileSHA256(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func lockFile(path string) (func(), error) {
+// lockFile takes an exclusive flock on path, polling with backoff so that
+// waiting for another bridge's install gives up when ctx is done.
+func lockFile(ctx context.Context, path string) (func(), error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return nil, err
 	}
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
-		_ = f.Close()
-		return nil, fmt.Errorf("lock %s: %w", path, err)
+	for delay := 10 * time.Millisecond; ; delay = min(2*delay, time.Second) {
+		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EINTR) {
+			_ = f.Close()
+			return nil, fmt.Errorf("lock %s: %w", path, err)
+		}
+		select {
+		case <-ctx.Done():
+			_ = f.Close()
+			return nil, fmt.Errorf("lock %s: %w", path, ctx.Err())
+		case <-time.After(delay):
+		}
 	}
 	return func() {
 		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)

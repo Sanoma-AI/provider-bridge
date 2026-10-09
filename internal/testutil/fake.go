@@ -25,8 +25,11 @@ const FakeSHA256 = "fa4efa4efa4efa4efa4efa4efa4efa4efa4efa4efa4efa4efa4efa4efa4e
 type FakeLauncher struct {
 	Starts   atomic.Int32
 	Resolves atomic.Int32
-	mu       sync.Mutex
-	last     *FakeProvider
+	// Gate, when set, holds every Configure with api_key "slow" until it
+	// is closed (or the call's context is done).
+	Gate chan struct{}
+	mu   sync.Mutex
+	last *FakeProvider
 }
 
 var _ provider.Launcher = (*FakeLauncher)(nil)
@@ -40,7 +43,7 @@ func (l *FakeLauncher) Resolve(_ context.Context, source, version string) (provi
 // Start returns a new FakeProvider.
 func (l *FakeLauncher) Start(context.Context, provider.Release) (provider.Instance, error) {
 	l.Starts.Add(1)
-	p := &FakeProvider{}
+	p := &FakeProvider{gate: l.Gate}
 	l.mu.Lock()
 	l.last = p
 	l.mu.Unlock()
@@ -67,6 +70,7 @@ type FakeProvider struct {
 	exited     atomic.Bool
 	killed     atomic.Bool
 	configured atomic.Bool
+	gate       chan struct{}
 }
 
 var _ provider.Instance = (*FakeProvider)(nil)
@@ -133,10 +137,19 @@ func (p *FakeProvider) PrepareConfig(_ context.Context, cfg cty.Value) (cty.Valu
 	return cfg, tfproto.Diagnostics{{Severity: tfproto.SeverityWarning, Summary: "fake warning"}}, nil
 }
 
-// Configure fails for api_key "bad".
-func (p *FakeProvider) Configure(_ context.Context, cfg cty.Value, _ string) (tfproto.Diagnostics, error) {
-	if k := cfg.GetAttr("api_key"); !k.IsNull() && k.AsString() == "bad" {
+// Configure fails for api_key "bad" and waits for the launcher's Gate for
+// api_key "slow".
+func (p *FakeProvider) Configure(ctx context.Context, cfg cty.Value, _ string) (tfproto.Diagnostics, error) {
+	switch k := cfg.GetAttr("api_key"); {
+	case k.IsNull():
+	case k.AsString() == "bad":
 		return tfproto.Diagnostics{{Severity: tfproto.SeverityError, Summary: "Invalid API key", Attribute: "api_key"}}, nil
+	case k.AsString() == "slow" && p.gate != nil:
+		select {
+		case <-p.gate:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 	p.configured.Store(true)
 	return nil, nil

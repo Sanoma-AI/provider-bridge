@@ -99,12 +99,7 @@ func (s *Service) Read(ctx context.Context, req *connect.Request[bridgev1.ReadRe
 
 // Close implements BridgeService.
 func (s *Service) Close(_ context.Context, req *connect.Request[bridgev1.CloseRequest]) (*connect.Response[bridgev1.CloseResponse], error) {
-	if p := req.Msg.GetProvider(); p != nil {
-		r := ref(p)
-		s.m.Close(&r)
-	} else {
-		s.m.Close(nil)
-	}
+	s.m.Close(ref(req.Msg.GetProvider()))
 	return connect.NewResponse(&bridgev1.CloseResponse{}), nil
 }
 
