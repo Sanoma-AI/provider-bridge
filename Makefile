@@ -49,7 +49,7 @@ record:
 	  --import github_repository=provider-bridge \
 	  --import github_repository=sanoma \
 	  --import github_branch_protection=provider-bridge:main
-	$(GO) run ./cmd/bridge-record --provider stripe/stripe --version 0.3.0 --schema-only
+	$(GO) run ./cmd/bridge-record --provider registry.terraform.io/stripe/stripe --version 0.3.0 --schema-only
 
 ## check-fresh: fail when vendor/ or gen/ differ from what go.mod and proto/ produce
 check-fresh: guard

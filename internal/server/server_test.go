@@ -122,7 +122,7 @@ func TestListen(t *testing.T) {
 	if err != nil || fi.Mode().Perm() != 0o600 {
 		t.Fatalf("mode = %v %v", fi.Mode(), err)
 	}
-	go func() { _ = http.Serve(ln, http.NotFoundHandler()) }()
+	go func(l net.Listener) { _ = http.Serve(l, http.NotFoundHandler()) }(ln)
 	if _, err := server.Listen(path); err == nil {
 		t.Fatal("listened on a socket in use")
 	}

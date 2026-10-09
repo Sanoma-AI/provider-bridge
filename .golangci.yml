@@ -1,0 +1,37 @@
+version: "2"
+
+run:
+  modules-download-mode: vendor
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - bodyclose
+    - copyloopvar
+    - errorlint
+    - misspell
+    - nolintlint
+    - unconvert
+  exclusions:
+    generated: strict
+    paths:
+      - gen
+      - testprovider
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/Sanoma-AI/provider-bridge
+  exclusions:
+    generated: strict
+    paths:
+      - gen
+      - testprovider
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

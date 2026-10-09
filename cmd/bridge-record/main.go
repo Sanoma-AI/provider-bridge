@@ -186,7 +186,7 @@ func record(ctx context.Context, o *options) error {
 		return err
 	}
 	if _, err := r.svc.Configure(ctx, connect.NewRequest(&bridgev1.ConfigureRequest{Provider: r.ref, ConfigJson: cfg})); err != nil {
-		return fmt.Errorf("Configure: %w", r.scrubErr(err))
+		return fmt.Errorf("configure: %w", r.scrubErr(err))
 	}
 	for _, imp := range o.imports {
 		typeName, id, ok := strings.Cut(imp, "=")

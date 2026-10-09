@@ -218,7 +218,14 @@ func attributes6(in []*tfplugin6.Schema_Attribute) (map[string]*schema.Attribute
 			if err != nil {
 				return nil, fmt.Errorf("attribute %s: %w", pa.GetName(), err)
 			}
-			a.NestedType = &schema.Object{Nesting: n, Attributes: children, MinItems: nt.GetMinItems(), MaxItems: nt.GetMaxItems()}
+			a.NestedType = &schema.Object{
+				Nesting:    n,
+				Attributes: children,
+				// Deprecated in tfplugin6 (OpenTofu ignores them) but still
+				// sent by some providers; kept for the schema document.
+				MinItems: nt.GetMinItems(), //nolint:staticcheck // see above
+				MaxItems: nt.GetMaxItems(), //nolint:staticcheck // see above
+			}
 		} else {
 			ty, err := attrType(pa.GetName(), pa.GetType())
 			if err != nil {

@@ -121,7 +121,7 @@ func TestProviderBinary(t testing.TB) string {
 		cmd.Dir = filepath.Join(RepoRoot(t), "testprovider")
 		cmd.Env = append(os.Environ(), "GOFLAGS=", "GOWORK=off")
 		if out, err := cmd.CombinedOutput(); err != nil {
-			buildErr = fmt.Errorf("build testprovider: %v\n%s", err, out)
+			buildErr = fmt.Errorf("build testprovider: %w\n%s", err, out)
 		}
 	})
 	if buildErr != nil {
@@ -142,17 +142,8 @@ func removeStaleBuilds(root string) {
 	}
 }
 
-func goTool() string {
-	if p := filepath.Join(runtime.GOROOT(), "bin", "go"); fileExists(p) {
-		return p
-	}
-	return "go"
-}
-
-func fileExists(p string) bool {
-	_, err := os.Stat(p)
-	return err == nil
-}
+// goTool is the go command; `go test` puts its own GOROOT/bin first on PATH.
+func goTool() string { return "go" }
 
 // Launcher returns a registry launcher over the shared test cache, with the
 // test provider registered as a dev override when withTestProvider is set.

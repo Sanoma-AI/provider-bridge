@@ -53,8 +53,6 @@ type Release struct {
 	Dir string
 }
 
-func (r Release) key() string { return r.Source + "@" + r.Version }
-
 // Instance is a running provider process.
 type Instance interface {
 	tfproto.Provider
