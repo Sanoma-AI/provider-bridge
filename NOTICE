@@ -1,0 +1,48 @@
+provider-bridge
+Copyright 2026 Sanoma AI
+
+Licensed under the Apache License, Version 2.0 (see LICENSE), except for
+the third-party material listed below, which keeps its own license.
+
+OpenTofu plugin protocol (MPL-2.0)
+  proto/tfplugin5/tfplugin5.proto and proto/tfplugin6/tfplugin6.proto are
+  unmodified copies of docs/plugin-protocol/tfplugin5.10.proto and
+  tfplugin6.10.proto from https://github.com/opentofu/opentofu at commit
+  52ade2f770d7b375798023db67db0b8d56653838, Copyright IBM Corp. 2014, 2026,
+  licensed under the Mozilla Public License 2.0. The Go code generated from
+  them (gen/tfplugin5, gen/tfplugin6) is covered by the same license.
+  Source: https://github.com/opentofu/opentofu/tree/main/docs/plugin-protocol
+
+OpenTofu provider verification (reference, no code copied)
+  internal/registry/verify.go follows the signing-key loop of OpenTofu's
+  internal/getproviders/package_authentication.go (MPL-2.0); it is an
+  independent implementation.
+
+Pulumi terraform bridge (reference only)
+  Nothing is copied from pulumi/pulumi-terraform-bridge in this version.
+  Any future copy will be listed here with its source file and commit.
+
+Vendored Go modules (vendor/)
+  Each module under vendor/ is distributed under the license file in its
+  own directory. In summary:
+    MPL-2.0       github.com/hashicorp/go-plugin, github.com/hashicorp/yamux
+    MIT           github.com/hashicorp/go-hclog, github.com/zclconf/go-cty,
+                  github.com/apparentlymart/go-textseg, github.com/fatih/color,
+                  github.com/mattn/go-colorable, github.com/mattn/go-isatty
+    Apache-2.0    connectrpc.com/connect, google.golang.org/grpc,
+                  google.golang.org/genproto, github.com/oklog/run
+    BSD-3-Clause  github.com/ProtonMail/go-crypto, github.com/cloudflare/circl,
+                  golang.org/x/*, google.golang.org/protobuf,
+                  github.com/golang/protobuf
+    BSD-2-Clause  github.com/vmihailenco/msgpack, github.com/vmihailenco/tagparser
+
+Test provider (testprovider/, not shipped)
+  testprovider/ is a separate Go module used only by tests. It depends on
+  github.com/hashicorp/terraform-plugin-framework and terraform-plugin-go
+  (MPL-2.0), which are never linked into cmd/provider-bridge.
+
+Recorded fixtures (testdata/)
+  testdata/schemas and testdata/replies hold schemas and API replies
+  recorded from provider binaries (integrations/github, stripe/stripe,
+  hashicorp/null). They are data produced by those programs; no provider
+  source code is included.
