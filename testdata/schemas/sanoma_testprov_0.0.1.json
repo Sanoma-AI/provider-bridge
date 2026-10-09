@@ -1,0 +1,115 @@
+{
+  "dataSources": {},
+  "formatVersion": 1,
+  "protocol": 6,
+  "providerConfig": {
+    "attributes": {
+      "api_key": {
+        "description": "Any string; \"invalid\" makes Configure fail.",
+        "descriptionKind": "plain",
+        "optional": true,
+        "sensitive": true,
+        "type": "string"
+      }
+    },
+    "blocks": {},
+    "description": "Test provider for provider-bridge.",
+    "descriptionKind": "plain"
+  },
+  "resources": {
+    "testprov_item": {
+      "block": {
+        "attributes": {
+          "id": {
+            "computed": true,
+            "description": "Identifier.",
+            "descriptionKind": "plain",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name.",
+            "descriptionKind": "plain",
+            "required": true,
+            "type": "string"
+          },
+          "rules": {
+            "nestedType": {
+              "attributes": {
+                "name": {
+                  "required": true,
+                  "type": "string"
+                },
+                "port": {
+                  "optional": true,
+                  "type": "number"
+                }
+              },
+              "nesting": "list"
+            },
+            "optional": true,
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "name": "string",
+                  "port": "number"
+                }
+              ]
+            ]
+          },
+          "settings": {
+            "nestedType": {
+              "attributes": {
+                "level": {
+                  "optional": true,
+                  "type": "number"
+                },
+                "secret": {
+                  "optional": true,
+                  "sensitive": true,
+                  "type": "string"
+                }
+              },
+              "nesting": "single"
+            },
+            "optional": true,
+            "type": [
+              "object",
+              {
+                "level": "number",
+                "secret": "string"
+              }
+            ]
+          },
+          "tags": {
+            "optional": true,
+            "type": [
+              "map",
+              "string"
+            ]
+          }
+        },
+        "blocks": {
+          "endpoint": {
+            "block": {
+              "attributes": {
+                "url": {
+                  "required": true,
+                  "type": "string"
+                }
+              },
+              "blocks": {}
+            },
+            "nesting": "list"
+          }
+        },
+        "description": "A fake item whose state is derived from its id.",
+        "descriptionKind": "plain"
+      },
+      "schemaVersion": 0
+    }
+  },
+  "source": "sanoma/testprov",
+  "version": "0.0.1"
+}

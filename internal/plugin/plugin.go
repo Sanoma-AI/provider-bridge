@@ -49,7 +49,9 @@ const maxMsgSize = 256 << 20
 // pluginName is the name providers register their plugin under.
 const pluginName = "provider"
 
-type grpcPlugin5 struct{ goplugin.NetRPCUnsupportedPlugin }
+type grpcPlugin5 struct {
+	goplugin.NetRPCUnsupportedPlugin
+}
 
 func (grpcPlugin5) GRPCServer(*goplugin.GRPCBroker, *grpc.Server) error {
 	return errors.New("provider-bridge is a plugin client only")
@@ -59,7 +61,9 @@ func (grpcPlugin5) GRPCClient(_ context.Context, _ *goplugin.GRPCBroker, conn *g
 	return tfplugin5.NewProviderClient(conn), nil
 }
 
-type grpcPlugin6 struct{ goplugin.NetRPCUnsupportedPlugin }
+type grpcPlugin6 struct {
+	goplugin.NetRPCUnsupportedPlugin
+}
 
 func (grpcPlugin6) GRPCServer(*goplugin.GRPCBroker, *grpc.Server) error {
 	return errors.New("provider-bridge is a plugin client only")
@@ -250,4 +254,3 @@ func level(s string) slog.Level {
 		return slog.LevelInfo
 	}
 }
-
