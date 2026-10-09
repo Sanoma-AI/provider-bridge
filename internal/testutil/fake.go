@@ -20,16 +20,18 @@ const FakeSHA256 = "fa4efa4efa4efa4efa4efa4efa4efa4efa4efa4efa4efa4efa4efa4efa4e
 
 // FakeLauncher starts in-process FakeProviders; no binaries, no network.
 type FakeLauncher struct {
-	Starts atomic.Int32
-	mu     sync.Mutex
-	last   *FakeProvider
+	Starts   atomic.Int32
+	Resolves atomic.Int32
+	mu       sync.Mutex
+	last     *FakeProvider
 }
 
 var _ provider.Launcher = (*FakeLauncher)(nil)
 
 // Resolve returns a release with FakeSHA256.
-func (l *FakeLauncher) Resolve(_ context.Context, ref provider.Ref) (provider.Release, error) {
-	return provider.Release{Source: ref.Source, Version: ref.Version, SHA256: FakeSHA256, Binary: "/fake"}, nil
+func (l *FakeLauncher) Resolve(_ context.Context, source, version string) (provider.Release, error) {
+	l.Resolves.Add(1)
+	return provider.Release{Source: source, Version: version, SHA256: FakeSHA256, Binary: "/fake"}, nil
 }
 
 // Start returns a new FakeProvider.

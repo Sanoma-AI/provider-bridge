@@ -6,9 +6,11 @@ package provider_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/Sanoma-AI/provider-bridge/internal/provider"
+	"github.com/Sanoma-AI/provider-bridge/internal/registry"
 	"github.com/Sanoma-AI/provider-bridge/internal/testutil"
 )
 
@@ -55,14 +57,43 @@ func TestSchemaIsCached(t *testing.T) {
 }
 
 func TestPinMismatch(t *testing.T) {
-	m, _ := newFakeManager(t)
-	ref := fakeRef
-	ref.SHA256 = "00"
-	if _, err := m.Schema(context.Background(), ref); code(err) != provider.CodeFailedPrecondition {
-		t.Fatalf("err = %v", err)
+	m, l := newFakeManager(t)
+	ctx := context.Background()
+	bad := fakeRef
+	bad.SHA256 = "00"
+	check := func(what string, err error) {
+		t.Helper()
+		var pinErr *registry.PinMismatchError
+		if code(err) != provider.CodeFailedPrecondition || !errors.As(err, &pinErr) || pinErr.Got != testutil.FakeSHA256 {
+			t.Fatalf("%s: err = %v", what, err)
+		}
 	}
-	if _, _, err := m.Configure(context.Background(), ref, "{}"); code(err) != provider.CodeFailedPrecondition {
-		t.Fatalf("err = %v", err)
+	_, err := m.Schema(ctx, bad)
+	check("cold schema", err)
+	_, _, err = m.Configure(ctx, bad, "{}")
+	check("configure", err)
+
+	// The same pin is checked on every path once the release is known.
+	good := fakeRef
+	good.SHA256 = strings.ToUpper(testutil.FakeSHA256)
+	if _, err := m.Schema(ctx, good); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := m.Configure(ctx, good, `{"api_key":"k"}`); err != nil {
+		t.Fatal(err)
+	}
+	_, err = m.Schema(ctx, bad)
+	check("warm schema", err)
+	_, _, err = m.Import(ctx, bad, "fake_thing", "a")
+	check("import", err)
+	_, _, _, err = m.Read(ctx, bad, "fake_thing", []byte(`{"id":"a"}`), nil)
+	check("read", err)
+	if _, _, err := m.Import(ctx, good, "fake_thing", "a"); err != nil {
+		t.Fatal(err)
+	}
+	// The release was resolved (installed and hashed) once.
+	if n := l.Resolves.Load(); n != 1 {
+		t.Fatalf("resolved %d times", n)
 	}
 }
 

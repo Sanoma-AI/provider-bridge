@@ -145,16 +145,17 @@ func removeStaleBuilds(root string) {
 // goTool is the go command; `go test` puts its own GOROOT/bin first on PATH.
 func goTool() string { return "go" }
 
-// Launcher returns a registry launcher over the shared test cache, with the
-// test provider registered as a dev override when withTestProvider is set.
-func Launcher(t testing.TB, log *slog.Logger, withTestProvider bool) *provider.RegistryLauncher {
+// Launcher returns a registry launcher over the shared test cache, composed
+// with an override serving the test provider when withTestProvider is set
+// (as `serve --dev-provider` does).
+func Launcher(t testing.TB, log *slog.Logger, withTestProvider bool) provider.Launcher {
 	t.Helper()
-	l := &provider.RegistryLauncher{
+	var l provider.Launcher = &provider.RegistryLauncher{
 		Cache:  registry.NewCache(CacheDir(t), log, nil),
 		Logger: log,
 	}
 	if withTestProvider {
-		l.Dev = map[string]string{TestProviderSource: TestProviderBinary(t)}
+		l = &provider.OverrideLauncher{Binaries: map[string]string{TestProviderSource: TestProviderBinary(t)}, Next: l}
 	}
 	return l
 }

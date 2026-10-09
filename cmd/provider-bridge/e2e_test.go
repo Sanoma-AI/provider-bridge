@@ -157,8 +157,13 @@ func TestE2ETestProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cres.Msg.GetSha256() == "" {
-		t.Fatal("Configure did not echo sha256")
+	if cres.Msg.GetSha256() != "" {
+		t.Fatalf("Configure echoed sha256 %s for an unverified dev provider", cres.Msg.GetSha256())
+	}
+	// A pin cannot match a dev provider.
+	pinned := &bridgev1.ProviderRef{Source: ref.GetSource(), Version: ref.GetVersion(), Sha256: strings.Repeat("0", 64)}
+	if _, err := c.GetSchema(ctx, connect.NewRequest(&bridgev1.GetSchemaRequest{Provider: pinned})); connect.CodeOf(err) != connect.CodeFailedPrecondition {
+		t.Fatalf("pinned dev provider: %v", err)
 	}
 
 	ires, err := g.Import(ctx, connect.NewRequest(&bridgev1.ImportRequest{Provider: ref, TypeName: "testprov_item", Id: "abc"}))

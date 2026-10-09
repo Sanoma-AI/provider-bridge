@@ -36,14 +36,9 @@ func schemaCmd(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	if err != nil {
 		return err
 	}
-	launcher := &provider.RegistryLauncher{
-		Cache:  c.cache(log),
-		Logger: log,
-		TFLog:  c.tfLog,
-	}
-	ref := provider.Ref{Source: src.String(), Version: version, SHA256: pin}
 	if !*raw {
-		res, err := provider.NewManager(launcher, log).Schema(ctx, ref)
+		launcher := &provider.RegistryLauncher{Cache: c.cache(log), Logger: log, TFLog: c.tfLog}
+		res, err := provider.NewManager(launcher, log).Schema(ctx, provider.Ref{Source: src.String(), Version: version, SHA256: pin})
 		if err != nil {
 			return err
 		}
@@ -51,17 +46,17 @@ func schemaCmd(ctx context.Context, args []string, stdout, stderr io.Writer) err
 		return err
 	}
 
-	rel, err := launcher.Resolve(ctx, ref)
+	inst, err := c.cache(log).Install(ctx, src, version, pin)
 	if err != nil {
 		return err
 	}
-	inst, err := launcher.Start(ctx, rel)
+	proc, err := plugin.Start(plugin.Config{Binary: inst.Binary(), Name: src.String(), Logger: log, TFLog: c.tfLog})
 	if err != nil {
 		return err
 	}
-	defer inst.Kill()
+	defer proc.Kill()
 	var msg proto.Message
-	switch p := inst.(*plugin.Process).Provider.(type) {
+	switch p := proc.Provider.(type) {
 	case *tfproto.Client5:
 		msg, err = p.RawSchema(ctx)
 	case *tfproto.Client6:

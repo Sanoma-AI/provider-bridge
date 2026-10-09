@@ -70,14 +70,12 @@ func serve(ctx context.Context, args []string, stdin io.Reader, stdout, stderr i
 		}()
 	}
 
-	for source, path := range dev {
-		log.Warn("dev provider override: binary is not verified", "provider", source, "binary", path)
-	}
-	launcher := &provider.RegistryLauncher{
-		Cache:  c.cache(log),
-		Logger: log,
-		TFLog:  c.tfLog,
-		Dev:    dev,
+	var launcher provider.Launcher = &provider.RegistryLauncher{Cache: c.cache(log), Logger: log, TFLog: c.tfLog}
+	if len(dev) > 0 {
+		for source, path := range dev {
+			log.Warn("dev provider override: binary is not verified", "provider", source, "binary", path)
+		}
+		launcher = &provider.OverrideLauncher{Binaries: dev, Next: launcher}
 	}
 	// Deferred calls run last-first: the Manager stops its providers, then
 	// go-plugin kills any managed process that is somehow still alive.

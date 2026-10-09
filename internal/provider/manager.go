@@ -45,8 +45,8 @@ type Release struct {
 	// Source is the normalized source address.
 	Source  string
 	Version string
-	// SHA256 is the hex sha256 of the release's SHA256SUMS document (for a
-	// dev override: of the binary).
+	// SHA256 is the hex sha256 of the release's SHA256SUMS document; empty
+	// for an unverified local binary (OverrideLauncher).
 	SHA256 string
 	Binary string
 	// Dir, when set, is where the schema document is cached.
@@ -62,9 +62,9 @@ type Instance interface {
 
 // Launcher resolves releases and starts provider processes.
 type Launcher interface {
-	// Resolve installs (when absent) and verifies the release. It fails with
-	// a *registry.PinMismatchError (or any error) when ref.SHA256 differs.
-	Resolve(ctx context.Context, ref Ref) (Release, error)
+	// Resolve installs (when absent) and verifies the release of source (in
+	// short form) at version. Pins are the Manager's business.
+	Resolve(ctx context.Context, source, version string) (Release, error)
 	// Start launches the release's binary and completes the handshake.
 	Start(ctx context.Context, rel Release) (Instance, error)
 }
@@ -95,6 +95,7 @@ type Manager struct {
 	opMu sync.Mutex
 
 	mu         sync.Mutex
+	releases   map[string]Release       // by source@version, resolved once
 	schemas    map[string]*SchemaResult // by source@version
 	configured map[string]*configured   // by source@version
 	closed     bool
@@ -115,6 +116,7 @@ func NewManager(launcher Launcher, log *slog.Logger) *Manager {
 	return &Manager{
 		launcher:   launcher,
 		log:        log,
+		releases:   map[string]Release{},
 		schemas:    map[string]*SchemaResult{},
 		configured: map[string]*configured{},
 	}
@@ -141,13 +143,6 @@ func normalize(ref Ref) (Ref, error) {
 	return ref, nil
 }
 
-func checkPin(ref Ref, sha string) error {
-	if ref.SHA256 != "" && ref.SHA256 != sha {
-		return newError(CodeFailedPrecondition, fmt.Sprintf("%s: SHA256SUMS sha256 is %s, request pins %s", ref, sha, ref.SHA256), nil)
-	}
-	return nil
-}
-
 // Schema returns the provider's schema, from memory, from the schema cached
 // in the release's cache directory, or by starting an unconfigured instance.
 func (m *Manager) Schema(ctx context.Context, ref Ref) (*SchemaResult, error) {
@@ -159,22 +154,25 @@ func (m *Manager) Schema(ctx context.Context, ref Ref) (*SchemaResult, error) {
 	cached := m.schemas[refKey(ref)]
 	m.mu.Unlock()
 	if cached != nil {
-		return cached, checkPin(ref, cached.SHA256)
+		if _, err := m.resolve(ctx, ref); err != nil {
+			return nil, err
+		}
+		return cached, nil
 	}
 
 	m.opMu.Lock()
 	defer m.opMu.Unlock()
-	m.mu.Lock()
-	cached = m.schemas[refKey(ref)]
-	m.mu.Unlock()
-	if cached != nil {
-		return cached, checkPin(ref, cached.SHA256)
-	}
-
 	rel, err := m.resolve(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
+	m.mu.Lock()
+	cached = m.schemas[refKey(ref)]
+	m.mu.Unlock()
+	if cached != nil {
+		return cached, nil
+	}
+
 	res, err := m.loadSchemaFile(rel)
 	if err != nil {
 		inst, err := m.start(ctx, rel)
@@ -241,13 +239,26 @@ func (m *Manager) storeSchema(rel Release, s *schema.ProviderSchema) (*SchemaRes
 	return &SchemaResult{Schema: &stamped, JSON: b, SHA256: rel.SHA256}, nil
 }
 
+// resolve returns the verified release of ref, resolved (installed and
+// hashed) once per Manager, and refuses it when ref pins another
+// SHA256SUMS. It is the one place a request's pin is checked.
 func (m *Manager) resolve(ctx context.Context, ref Ref) (Release, error) {
-	rel, err := m.launcher.Resolve(ctx, ref)
-	if err != nil {
-		return Release{}, newError(CodeFailedPrecondition, fmt.Sprintf("%s: resolve provider", ref), err)
+	key := refKey(ref)
+	m.mu.Lock()
+	rel, ok := m.releases[key]
+	m.mu.Unlock()
+	if !ok {
+		var err error
+		if rel, err = m.launcher.Resolve(ctx, ref.Source, ref.Version); err != nil {
+			return Release{}, newError(CodeFailedPrecondition, fmt.Sprintf("%s: resolve provider", ref), err)
+		}
+		m.mu.Lock()
+		m.releases[key] = rel
+		m.mu.Unlock()
 	}
-	if err := checkPin(ref, rel.SHA256); err != nil {
-		return Release{}, err
+	if ref.SHA256 != "" && ref.SHA256 != rel.SHA256 {
+		return Release{}, newError(CodeFailedPrecondition, "refusing release",
+			&registry.PinMismatchError{Source: rel.Source, Version: rel.Version, Want: ref.SHA256, Got: rel.SHA256})
 	}
 	return rel, nil
 }
@@ -283,10 +294,16 @@ func (m *Manager) Configure(ctx context.Context, ref Ref, configJSON string) (tf
 	m.opMu.Lock()
 	defer m.opMu.Unlock()
 	m.mu.Lock()
-	if m.closed {
-		m.mu.Unlock()
+	closed := m.closed
+	m.mu.Unlock()
+	if closed {
 		return nil, "", newError(CodeUnavailable, "bridge is shutting down", nil)
 	}
+	rel, err := m.resolve(ctx, ref)
+	if err != nil {
+		return nil, "", err
+	}
+	m.mu.Lock()
 	cur := m.configured[refKey(ref)]
 	m.mu.Unlock()
 	if cur != nil {
@@ -297,14 +314,10 @@ func (m *Manager) Configure(ctx context.Context, ref Ref, configJSON string) (tf
 		case cur.configHash != hash:
 			return nil, "", newError(CodeFailedPrecondition, fmt.Sprintf("%s is already configured with a different config; Close it first", ref), nil)
 		default:
-			return nil, cur.rel.SHA256, checkPin(ref, cur.rel.SHA256)
+			return nil, rel.SHA256, nil
 		}
 	}
 
-	rel, err := m.resolve(ctx, ref)
-	if err != nil {
-		return nil, "", err
-	}
 	inst, err := m.start(ctx, rel)
 	if err != nil {
 		return nil, "", err
@@ -366,9 +379,12 @@ func (m *Manager) configure(ctx context.Context, ref Ref, rel Release, inst Inst
 }
 
 // instance returns the configured, live instance for ref.
-func (m *Manager) instance(ref Ref) (Ref, *configured, error) {
+func (m *Manager) instance(ctx context.Context, ref Ref) (Ref, *configured, error) {
 	ref, err := normalize(ref)
 	if err != nil {
+		return ref, nil, err
+	}
+	if _, err := m.resolve(ctx, ref); err != nil {
 		return ref, nil, err
 	}
 	m.mu.Lock()
@@ -381,7 +397,7 @@ func (m *Manager) instance(ref Ref) (Ref, *configured, error) {
 		m.remove(refKey(ref), c)
 		return ref, nil, newError(CodeUnavailable, fmt.Sprintf("%s: provider exited; configure again", ref), nil)
 	}
-	return ref, c, checkPin(ref, c.rel.SHA256)
+	return ref, c, nil
 }
 
 func (m *Manager) remove(key string, c *configured) {
@@ -409,7 +425,7 @@ func (m *Manager) callErr(ref Ref, c *configured, what string, err error) error 
 // Import imports the object with the given ID and reads it. A provider may
 // return several resources for one ID; each is read.
 func (m *Manager) Import(ctx context.Context, ref Ref, typeName, id string) ([]Resource, tfproto.Diagnostics, error) {
-	ref, c, err := m.instance(ref)
+	ref, c, err := m.instance(ctx, ref)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -444,7 +460,7 @@ func (m *Manager) Import(ctx context.Context, ref Ref, typeName, id string) ([]R
 
 // Read refreshes one resource. gone reports that the object no longer exists.
 func (m *Manager) Read(ctx context.Context, ref Ref, typeName string, stateJSON []byte, private []byte) (Resource, bool, tfproto.Diagnostics, error) {
-	ref, c, err := m.instance(ref)
+	ref, c, err := m.instance(ctx, ref)
 	if err != nil {
 		return Resource{}, false, nil, err
 	}

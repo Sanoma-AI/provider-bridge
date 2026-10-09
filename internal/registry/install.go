@@ -93,6 +93,9 @@ type PinMismatchError struct {
 }
 
 func (e *PinMismatchError) Error() string {
+	if e.Got == "" {
+		return fmt.Sprintf("%s %s: unverified local binary (no SHA256SUMS), pinned %s", e.Source, e.Version, e.Want)
+	}
 	return fmt.Sprintf("%s %s: SHA256SUMS sha256 is %s, pinned %s", e.Source, e.Version, e.Got, e.Want)
 }
 
