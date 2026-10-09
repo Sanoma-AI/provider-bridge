@@ -32,10 +32,14 @@ type Service struct {
 
 var _ providerbridgev1connect.BridgeServiceHandler = (*Service)(nil)
 
+// NewService returns the service implementation, for in-process callers
+// such as bridge-record.
+func NewService(m *provider.Manager) *Service { return &Service{m: m} }
+
 // NewHandler returns the HTTP handler serving BridgeService.
 func NewHandler(m *provider.Manager, log *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
-	path, h := providerbridgev1connect.NewBridgeServiceHandler(&Service{m: m},
+	path, h := providerbridgev1connect.NewBridgeServiceHandler(NewService(m),
 		connect.WithInterceptors(logInterceptor(log)))
 	mux.Handle(path, h)
 	return mux
