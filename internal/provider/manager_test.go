@@ -86,7 +86,7 @@ func TestPinMismatch(t *testing.T) {
 	check("warm schema", err)
 	_, _, err = m.Import(ctx, bad, "fake_thing", "a")
 	check("import", err)
-	_, _, _, err = m.Read(ctx, bad, "fake_thing", []byte(`{"id":"a"}`), nil)
+	_, _, _, err = m.Read(ctx, bad, "fake_thing", []byte(`{"id":"a"}`), nil, nil)
 	check("read", err)
 	if _, _, err := m.Import(ctx, good, "fake_thing", "a"); err != nil {
 		t.Fatal(err)
@@ -137,27 +137,27 @@ func TestConfigureLifecycle(t *testing.T) {
 		t.Fatalf("import = %+v (%s)", res, res[0].State)
 	}
 
-	got, gone, _, err := m.Read(ctx, fakeRef, "fake_thing", []byte(`{"id":"b"}`), nil)
+	got, gone, _, err := m.Read(ctx, fakeRef, "fake_thing", []byte(`{"id":"b"}`), nil, nil)
 	if err != nil || gone || string(got.State) != `{"id":"b","name":"thing-b","secret":"s3cret"}` {
 		t.Fatalf("read = %+v %v %v", got, gone, err)
 	}
-	if _, gone, _, err := m.Read(ctx, fakeRef, "fake_thing", []byte(`{"id":"gone"}`), nil); err != nil || !gone {
+	if _, gone, _, err := m.Read(ctx, fakeRef, "fake_thing", []byte(`{"id":"gone"}`), nil, nil); err != nil || !gone {
 		t.Fatalf("read gone = %v %v", gone, err)
 	}
 	if _, _, err := m.Import(ctx, fakeRef, "fake_thing", "gone"); code(err) != provider.CodeNotFound {
 		t.Fatalf("import gone: %v", err)
 	}
-	_, _, _, err = m.Read(ctx, fakeRef, "fake_thing", []byte(`{"id":"fail"}`), nil)
+	_, _, _, err = m.Read(ctx, fakeRef, "fake_thing", []byte(`{"id":"fail"}`), nil, nil)
 	var perr *provider.Error
 	if !errors.As(err, &perr) || perr.Code != provider.CodeFailedPrecondition || len(perr.Diagnostics) != 1 || perr.Diagnostics[0].Attribute != "name" {
 		t.Fatalf("read fail: %#v", err)
 	}
 	for _, bad := range []string{`{"nope":1}`, `[]`, `null`, ``} {
-		if _, _, _, err := m.Read(ctx, fakeRef, "fake_thing", []byte(bad), nil); code(err) != provider.CodeInvalidArgument {
+		if _, _, _, err := m.Read(ctx, fakeRef, "fake_thing", []byte(bad), nil, nil); code(err) != provider.CodeInvalidArgument {
 			t.Errorf("read %q: %v", bad, err)
 		}
 	}
-	if _, _, _, err := m.Read(ctx, fakeRef, "fake_nope", []byte(`{}`), nil); code(err) != provider.CodeInvalidArgument {
+	if _, _, _, err := m.Read(ctx, fakeRef, "fake_nope", []byte(`{}`), nil, nil); code(err) != provider.CodeInvalidArgument {
 		t.Fatalf("unknown type: %v", err)
 	}
 	if _, _, err := m.Import(ctx, fakeRef, "fake_nope", "x"); code(err) != provider.CodeInvalidArgument {
@@ -182,6 +182,36 @@ func TestConfigureLifecycle(t *testing.T) {
 	}
 }
 
+// A state written with an older schema version is upgraded by the provider
+// before it is read.
+func TestReadUpgradesState(t *testing.T) {
+	m, l := newFakeManager(t)
+	ctx := context.Background()
+	if _, _, err := m.Configure(ctx, fakeRef, `{}`); err != nil {
+		t.Fatal(err)
+	}
+	old := []byte(`{"id":"a","title":"old"}`)
+	if _, _, _, err := m.Read(ctx, fakeRef, "fake_thing", old, nil, nil); code(err) != provider.CodeInvalidArgument {
+		t.Fatalf("version 0 state read as current: %v", err)
+	}
+	v0, v1, v9 := int64(0), int64(1), int64(9)
+	got, gone, _, err := m.Read(ctx, fakeRef, "fake_thing", old, nil, &v0)
+	if err != nil || gone || string(got.State) != `{"id":"a","name":"thing-a","secret":"s3cret"}` || got.SchemaVersion != 1 {
+		t.Fatalf("read v0 = %s %v %v", got.State, gone, err)
+	}
+	if _, _, _, err := m.Read(ctx, fakeRef, "fake_thing", []byte(`{"id":"b"}`), nil, &v1); err != nil {
+		t.Fatal(err)
+	}
+	_, _, _, err = m.Read(ctx, fakeRef, "fake_thing", old, nil, &v9)
+	var perr *provider.Error
+	if !errors.As(err, &perr) || perr.Code != provider.CodeFailedPrecondition || len(perr.Diagnostics) != 1 {
+		t.Fatalf("read v9: %v", err)
+	}
+	if n := l.Last().Upgrades.Load(); n != 3 {
+		t.Fatalf("UpgradeResourceState called %d times, want 3", n)
+	}
+}
+
 // Dynamic attributes arrive with a concrete type, in config and in state.
 func TestDynamicAttributes(t *testing.T) {
 	m, _ := newFakeManager(t)
@@ -190,7 +220,7 @@ func TestDynamicAttributes(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := `{"id":"d","value":{"value":["x",true],"type":["tuple",["string","bool"]]}}`
-	got, gone, _, err := m.Read(ctx, fakeRef, "fake_dyn", []byte(state), nil)
+	got, gone, _, err := m.Read(ctx, fakeRef, "fake_dyn", []byte(state), nil, nil)
 	if err != nil || gone || string(got.State) != state {
 		t.Fatalf("read = %s %v %v", got.State, gone, err)
 	}

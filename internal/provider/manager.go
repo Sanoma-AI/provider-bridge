@@ -458,8 +458,12 @@ func (m *Manager) Import(ctx context.Context, ref Ref, typeName, id string) ([]R
 	return out, warnings, nil
 }
 
-// Read refreshes one resource. gone reports that the object no longer exists.
-func (m *Manager) Read(ctx context.Context, ref Ref, typeName string, stateJSON []byte, private []byte) (Resource, bool, tfproto.Diagnostics, error) {
+// Read refreshes one resource. gone reports that the object no longer
+// exists. When schemaVersion is set, stateJSON was written with that schema
+// version and the provider upgrades it (UpgradeResourceState) before the
+// read, as OpenTofu does on every refresh; otherwise stateJSON must be of
+// the current implied type.
+func (m *Manager) Read(ctx context.Context, ref Ref, typeName string, stateJSON, private []byte, schemaVersion *int64) (Resource, bool, tfproto.Diagnostics, error) {
 	ref, c, err := m.instance(ctx, ref)
 	if err != nil {
 		return Resource{}, false, nil, err
@@ -468,17 +472,35 @@ func (m *Manager) Read(ctx context.Context, ref Ref, typeName string, stateJSON 
 	if !ok {
 		return Resource{}, false, nil, newError(CodeInvalidArgument, fmt.Sprintf("provider has no resource type %q", typeName), nil)
 	}
-	state, err := values.FromJSON(stateJSON, r.Block.ImpliedType())
-	if err != nil {
-		return Resource{}, false, nil, newError(CodeInvalidArgument, "state_json", err)
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(stateJSON, &obj); err != nil || obj == nil {
+		return Resource{}, false, nil, newError(CodeInvalidArgument, "state_json must be a JSON object", err)
 	}
-	if state.IsNull() {
-		return Resource{}, false, nil, newError(CodeInvalidArgument, "state_json must be a JSON object", nil)
+	var state cty.Value
+	var warnings tfproto.Diagnostics
+	if schemaVersion != nil {
+		var diags tfproto.Diagnostics
+		state, diags, err = c.inst.UpgradeResourceState(ctx, typeName, *schemaVersion, stateJSON)
+		if err != nil {
+			return Resource{}, false, nil, m.callErr(ref, c, "upgrade state", err)
+		}
+		if diags.HasErrors() {
+			return Resource{}, false, nil, diagError(CodeFailedPrecondition, fmt.Sprintf("upgrade %s state from schema version %d", typeName, *schemaVersion), diags)
+		}
+		warnings = diags.Warnings()
+		if state.IsNull() {
+			return Resource{}, false, nil, newError(CodeFailedPrecondition, fmt.Sprintf("upgrade %s state: provider returned no state", typeName), nil)
+		}
+	} else {
+		if state, err = values.FromJSON(stateJSON, r.Block.ImpliedType()); err != nil {
+			return Resource{}, false, nil, newError(CodeInvalidArgument, "state_json", err)
+		}
+		if state, err = schema.CoerceConfig(r.Block, state); err != nil {
+			return Resource{}, false, nil, newError(CodeInvalidArgument, "state_json", err)
+		}
 	}
-	if state, err = schema.CoerceConfig(r.Block, state); err != nil {
-		return Resource{}, false, nil, newError(CodeInvalidArgument, "state_json", err)
-	}
-	return m.read(ctx, ref, c, typeName, state, private)
+	res, gone, diags, err := m.read(ctx, ref, c, typeName, state, private)
+	return res, gone, append(warnings, diags...), err
 }
 
 func (m *Manager) read(ctx context.Context, ref Ref, c *configured, typeName string, state cty.Value, private []byte) (Resource, bool, tfproto.Diagnostics, error) {

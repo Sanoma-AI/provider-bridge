@@ -39,6 +39,9 @@ type Provider interface {
 	// ImportResourceState and ReadResource.
 	Configure(ctx context.Context, cfg cty.Value, terraformVersion string) (Diagnostics, error)
 	ImportResourceState(ctx context.Context, typeName, id string) ([]ImportedResource, Diagnostics, error)
+	// UpgradeResourceState converts rawJSON, state written with schema
+	// version, into a value of the resource type's current implied type.
+	UpgradeResourceState(ctx context.Context, typeName string, version int64, rawJSON []byte) (cty.Value, Diagnostics, error)
 	// ReadResource refreshes state; a null new state means the object is gone.
 	ReadResource(ctx context.Context, typeName string, state cty.Value, private []byte) (cty.Value, []byte, Diagnostics, error)
 	// Stop asks the provider to cancel in-flight calls.

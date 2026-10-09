@@ -64,6 +64,12 @@ func TestHandlers(t *testing.T) {
 		t.Fatalf("Import = %v", r)
 	}
 
+	v0 := int64(0)
+	ures, err := c.Read(ctx, connect.NewRequest(&bridgev1.ReadRequest{Provider: ref, TypeName: "fake_thing", StateJson: `{"id":"u","title":"t"}`, SchemaVersion: &v0}))
+	if err != nil || ures.Msg.GetResource().GetSchemaVersion() != 1 || l.Last().Upgrades.Load() != 1 {
+		t.Fatalf("Read with schema_version = %v %v", ures, err)
+	}
+
 	rres, err := c.Read(ctx, connect.NewRequest(&bridgev1.ReadRequest{Provider: ref, TypeName: "fake_thing", StateJson: `{"id":"gone"}`}))
 	if err != nil || !rres.Msg.GetGone() {
 		t.Fatalf("Read gone = %v %v", rres, err)

@@ -5,6 +5,8 @@ package testutil
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"sync"
 	"sync/atomic"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/Sanoma-AI/provider-bridge/internal/provider"
 	"github.com/Sanoma-AI/provider-bridge/internal/schema"
 	"github.com/Sanoma-AI/provider-bridge/internal/tfproto"
+	"github.com/Sanoma-AI/provider-bridge/internal/values"
 )
 
 // FakeSHA256 is the SHA256SUMS hash the fake launcher reports.
@@ -59,6 +62,8 @@ func (l *FakeLauncher) Last() *FakeProvider {
 // Configure fails for api_key "bad"; its config also has a dynamic
 // attribute, extra.
 type FakeProvider struct {
+	// Upgrades counts UpgradeResourceState calls.
+	Upgrades   atomic.Int32
 	exited     atomic.Bool
 	killed     atomic.Bool
 	configured atomic.Bool
@@ -152,6 +157,29 @@ func (p *FakeProvider) ImportResourceState(_ context.Context, typeName, id strin
 	}
 	state := cty.ObjectVal(map[string]cty.Value{"id": cty.StringVal(id), "name": cty.NullVal(cty.String), "secret": cty.NullVal(cty.String)})
 	return []tfproto.ImportedResource{{TypeName: typeName, State: state, Private: []byte("priv")}}, nil, nil
+}
+
+// UpgradeResourceState upgrades fake_thing state from schema version 0,
+// whose "title" became "name" in version 1, and parses version 1 as is.
+func (p *FakeProvider) UpgradeResourceState(_ context.Context, typeName string, version int64, rawJSON []byte) (cty.Value, tfproto.Diagnostics, error) {
+	p.Upgrades.Add(1)
+	r, ok := FakeSchema().Resource(typeName)
+	if !ok {
+		return cty.NilVal, nil, &tfproto.UnknownTypeError{TypeName: typeName}
+	}
+	ty := r.Block.ImpliedType()
+	switch {
+	case version == r.SchemaVersion:
+		v, err := values.FromJSON(rawJSON, ty)
+		return v, nil, err
+	case typeName == "fake_thing" && version == 0:
+		var old struct{ ID, Title string }
+		if err := json.Unmarshal(rawJSON, &old); err != nil {
+			return cty.NilVal, nil, err
+		}
+		return cty.ObjectVal(map[string]cty.Value{"id": cty.StringVal(old.ID), "name": cty.StringVal(old.Title), "secret": cty.NullVal(cty.String)}), nil, nil
+	}
+	return cty.NilVal, tfproto.Diagnostics{{Severity: tfproto.SeverityError, Summary: fmt.Sprintf("Unsupported schema version %d", version)}}, nil
 }
 
 // ReadResource derives fake_thing state from the id and returns fake_dyn

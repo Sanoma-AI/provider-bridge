@@ -26,8 +26,9 @@ service BridgeService {
   rpc Configure(ConfigureRequest) returns (ConfigureResponse);
   // Import runs ImportResourceState and then ReadResource on each result.
   rpc Import(ImportRequest) returns (ImportResponse);
-  // Read refreshes one resource from the vendor. `gone` means it no longer
-  // exists.
+  // Read refreshes one resource from the vendor, upgrading its state first
+  // when the request names the schema version it was written with. `gone`
+  // means it no longer exists.
   rpc Read(ReadRequest) returns (ReadResponse);
   // Close stops one configured provider, or all of them.
   rpc Close(CloseRequest) returns (CloseResponse);
@@ -97,8 +98,16 @@ message ImportResponse {
 message ReadRequest {
   ProviderRef provider = 1;
   string type_name = 2;
+  // Prior state as a JSON object: of the resource type's current implied
+  // type, or, when schema_version is set, as written at that version.
   string state_json = 3;
   bytes private = 4;
+  // The schema version state_json was written with (Resource.schema_version
+  // of the response that produced it). When set, the provider upgrades the
+  // state (UpgradeResourceState) before reading it, as OpenTofu does on
+  // every refresh; when unset, state_json must already match the current
+  // schema.
+  optional int64 schema_version = 5;
 }
 
 message ReadResponse {

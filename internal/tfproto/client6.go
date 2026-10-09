@@ -179,6 +179,36 @@ func (c *Client6) ImportResourceState(ctx context.Context, typeName, id string) 
 	return out, diags, nil
 }
 
+// UpgradeResourceState calls UpgradeResourceState with raw JSON state.
+func (c *Client6) UpgradeResourceState(ctx context.Context, typeName string, version int64, rawJSON []byte) (cty.Value, Diagnostics, error) {
+	types, err := c.loaded(ctx)
+	if err != nil {
+		return cty.NilVal, nil, err
+	}
+	r, err := types.resource(typeName)
+	if err != nil {
+		return cty.NilVal, nil, err
+	}
+	resp, err := c.rpc.UpgradeResourceState(ctx, &tfplugin6.UpgradeResourceState_Request{
+		TypeName: typeName,
+		Version:  version,
+		RawState: &tfplugin6.RawState{Json: rawJSON},
+	})
+	if err != nil {
+		return cty.NilVal, nil, fmt.Errorf("UpgradeResourceState: %w", err)
+	}
+	diags := diagnostics6(resp.GetDiagnostics())
+	if diags.HasErrors() {
+		return cty.NilVal, diags, nil
+	}
+	ty := r.Block.ImpliedType()
+	state, err := values.FromDynamic(resp.GetUpgradedState().GetMsgpack(), resp.GetUpgradedState().GetJson(), ty)
+	if err != nil {
+		return cty.NilVal, diags, fmt.Errorf("UpgradeResourceState: %s upgraded state: %w", typeName, err)
+	}
+	return state, diags, nil
+}
+
 // ReadResource calls ReadResource.
 func (c *Client6) ReadResource(ctx context.Context, typeName string, state cty.Value, private []byte) (cty.Value, []byte, Diagnostics, error) {
 	types, err := c.loaded(ctx)

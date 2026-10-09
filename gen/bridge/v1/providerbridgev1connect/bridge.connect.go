@@ -59,8 +59,9 @@ type BridgeServiceClient interface {
 	Configure(context.Context, *connect.Request[v1.ConfigureRequest]) (*connect.Response[v1.ConfigureResponse], error)
 	// Import runs ImportResourceState and then ReadResource on each result.
 	Import(context.Context, *connect.Request[v1.ImportRequest]) (*connect.Response[v1.ImportResponse], error)
-	// Read refreshes one resource from the vendor. `gone` means it no longer
-	// exists.
+	// Read refreshes one resource from the vendor, upgrading its state first
+	// when the request names the schema version it was written with. `gone`
+	// means it no longer exists.
 	Read(context.Context, *connect.Request[v1.ReadRequest]) (*connect.Response[v1.ReadResponse], error)
 	// Close stops one configured provider, or all of them.
 	Close(context.Context, *connect.Request[v1.CloseRequest]) (*connect.Response[v1.CloseResponse], error)
@@ -155,8 +156,9 @@ type BridgeServiceHandler interface {
 	Configure(context.Context, *connect.Request[v1.ConfigureRequest]) (*connect.Response[v1.ConfigureResponse], error)
 	// Import runs ImportResourceState and then ReadResource on each result.
 	Import(context.Context, *connect.Request[v1.ImportRequest]) (*connect.Response[v1.ImportResponse], error)
-	// Read refreshes one resource from the vendor. `gone` means it no longer
-	// exists.
+	// Read refreshes one resource from the vendor, upgrading its state first
+	// when the request names the schema version it was written with. `gone`
+	// means it no longer exists.
 	Read(context.Context, *connect.Request[v1.ReadRequest]) (*connect.Response[v1.ReadResponse], error)
 	// Close stops one configured provider, or all of them.
 	Close(context.Context, *connect.Request[v1.CloseRequest]) (*connect.Response[v1.CloseResponse], error)

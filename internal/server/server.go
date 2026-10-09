@@ -86,7 +86,7 @@ func (s *Service) Import(ctx context.Context, req *connect.Request[bridgev1.Impo
 
 // Read implements BridgeService.
 func (s *Service) Read(ctx context.Context, req *connect.Request[bridgev1.ReadRequest]) (*connect.Response[bridgev1.ReadResponse], error) {
-	res, gone, warnings, err := s.m.Read(ctx, ref(req.Msg.GetProvider()), req.Msg.GetTypeName(), []byte(req.Msg.GetStateJson()), req.Msg.GetPrivate())
+	res, gone, warnings, err := s.m.Read(ctx, ref(req.Msg.GetProvider()), req.Msg.GetTypeName(), []byte(req.Msg.GetStateJson()), req.Msg.GetPrivate(), req.Msg.SchemaVersion)
 	if err != nil {
 		return nil, toConnect(ctx, err)
 	}
