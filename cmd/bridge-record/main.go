@@ -1,5 +1,5 @@
 // Copyright 2026 Sanoma AI
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 
 // Command bridge-record records provider schemas and Import/Read replies
 // into testdata/, scrubbed of secrets, so the bridge and its clients can be

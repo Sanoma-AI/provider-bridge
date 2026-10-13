@@ -1,5 +1,5 @@
 // Copyright 2026 Sanoma AI
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 
 // Package schema is the bridge's protocol-neutral model of an OpenTofu
 // provider schema and its JSON document (formatVersion 1).

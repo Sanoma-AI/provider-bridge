@@ -1,5 +1,5 @@
 // Copyright 2026 Sanoma AI
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 
 // Package plugin starts an OpenTofu provider binary as a go-plugin
 // subprocess and completes the plugin protocol handshake, the way OpenTofu

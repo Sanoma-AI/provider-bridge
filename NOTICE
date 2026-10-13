@@ -1,7 +1,8 @@
 provider-bridge
 Copyright 2026 Sanoma AI
 
-Licensed under the Apache License, Version 2.0 (see LICENSE), except for
+Licensed under the Functional Source License, Version 1.1, ALv2 Future
+License (FSL-1.1-ALv2, see LICENSE), except for
 the third-party material listed below, which keeps its own license.
 
 OpenTofu plugin protocol (MPL-2.0)

@@ -1,5 +1,5 @@
 // Copyright 2026 Sanoma AI
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 
 // Command provider-bridge serves OpenTofu providers to the Sanoma engine over
 // ConnectRPC on a unix socket.
