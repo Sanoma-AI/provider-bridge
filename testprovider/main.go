@@ -1,5 +1,5 @@
 // Copyright 2026 Sanoma AI
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 
 // Command terraform-provider-testprov is a protocol 6 OpenTofu provider
 // built on terraform-plugin-framework, used only by provider-bridge's tests.

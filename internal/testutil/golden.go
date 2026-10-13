@@ -1,5 +1,5 @@
 // Copyright 2026 Sanoma AI
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 
 // Package testutil holds test helpers: golden files, the pinned provider
 // downloads integration tests use, and building the in-tree protocol 6 test

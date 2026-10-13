@@ -1,5 +1,5 @@
 // Copyright 2026 Sanoma AI
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 
 // Package pins reads a pins file (testdata/pins.json): provider releases
 // tests and the fixture recorder may download, each pinned by the sha256 of

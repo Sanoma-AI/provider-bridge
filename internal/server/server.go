@@ -1,5 +1,5 @@
 // Copyright 2026 Sanoma AI
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 
 // Package server exposes the provider Manager as the Connect service
 // sanoma.providerbridge.v1.BridgeService over HTTP/1.1 and unencrypted

@@ -154,7 +154,7 @@ STRIPE_API_KEY=sk_test_… go run ./cmd/bridge-record \
 
 ## License
 
-[Apache-2.0](LICENSE). Third-party material (the OpenTofu plugin protocol definitions, vendored modules) keeps its own license; see [NOTICE](NOTICE).
+[FSL-1.1-ALv2](LICENSE): use, modify and self-host it for any purpose except offering it as a competing commercial product or service; each version becomes available under Apache-2.0 two years after its release. Third-party material (the OpenTofu plugin protocol definitions, vendored modules) keeps its own license; see [NOTICE](NOTICE).
 
 ## Contributing
 

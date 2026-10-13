@@ -1,5 +1,5 @@
 // Copyright 2026 Sanoma AI
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: FSL-1.1-ALv2
 
 // Package provider manages provider instances for the bridge: it resolves a
 // (source, version) to a verified binary, caches schemas, keeps one
