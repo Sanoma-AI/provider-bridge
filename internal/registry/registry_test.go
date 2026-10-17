@@ -19,6 +19,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/Sanoma-AI/provider-bridge/internal/pins"
 )
 
 func readTestdata(t *testing.T, name string) []byte {
@@ -123,20 +125,36 @@ func TestParseSource(t *testing.T) {
 }
 
 func TestTrustedKeys(t *testing.T) {
-	keys := TrustedKeys().For(Source{Host: DefaultHost, Namespace: "stripe", Type: "stripe"})
-	if len(keys) != 1 || keys[0].KeyID != "A6C87736961A5EF6" {
-		t.Fatalf("stripe/stripe trusted keys = %+v", keys)
-	}
-	// The key verifies the stripe/stripe 0.3.0 SHA256SUMS that
+	// Each key verifies the SHA256SUMS of its provider's pinned release that
 	// registry.opentofu.org points at (copied from the GitHub release), whose
 	// sha256 is the pin in testdata/pins.json.
-	sums := readTestdata(t, "stripe_0.3.0_SHA256SUMS")
-	if got := sha256.Sum256(sums); hex.EncodeToString(got[:]) != "2e3ae569e1bee7c64ae7f10e6ceaaf5bfab4db7af38979bab28f9b7a35a260c5" {
-		t.Fatalf("stripe SHA256SUMS sha256 = %x", got)
+	all, err := pins.Read(filepath.Join("..", "..", "testdata", "pins.json"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	signer, err := VerifySums(sums, readTestdata(t, "stripe_0.3.0_SHA256SUMS.sig"), keys)
-	if err != nil || signer.KeyID != "A6C87736961A5EF6" {
-		t.Fatalf("stripe SHA256SUMS: signer %+v, %v", signer, err)
+	for _, tc := range []struct{ namespace, typ, keyID string }{
+		{"stripe", "stripe", "A6C87736961A5EF6"},
+		{"supabase", "supabase", "18C770C37712658E"},
+	} {
+		t.Run(tc.namespace+"/"+tc.typ, func(t *testing.T) {
+			keys := TrustedKeys().For(Source{Host: DefaultHost, Namespace: tc.namespace, Type: tc.typ})
+			if len(keys) != 1 || keys[0].KeyID != tc.keyID {
+				t.Fatalf("trusted keys = %+v", keys)
+			}
+			pin, ok := all[tc.namespace+"/"+tc.typ]
+			if !ok {
+				t.Fatal("not pinned in testdata/pins.json")
+			}
+			release := tc.typ + "_" + pin.Version
+			sums := readTestdata(t, release+"_SHA256SUMS")
+			if got := sha256.Sum256(sums); hex.EncodeToString(got[:]) != pin.SHA256 {
+				t.Fatalf("%s SHA256SUMS sha256 = %x, pin %s", release, got, pin.SHA256)
+			}
+			signer, err := VerifySums(sums, readTestdata(t, release+"_SHA256SUMS.sig"), keys)
+			if err != nil || signer.KeyID != tc.keyID {
+				t.Fatalf("%s SHA256SUMS: signer %+v, %v", release, signer, err)
+			}
+		})
 	}
 	// Every embedded key file is listed for a provider.
 	files, err := keyFiles.ReadDir("keys")

@@ -13,5 +13,10 @@
     "version": "0.3.0",
     "sha256": "2e3ae569e1bee7c64ae7f10e6ceaaf5bfab4db7af38979bab28f9b7a35a260c5",
     "note": "protocol 6 (Plugin Framework); registry.opentofu.org lists no signing key for this release, so it verifies against the trusted key A6C87736961A5EF6 (internal/registry/keys)"
+  },
+  "supabase/supabase": {
+    "version": "1.11.0",
+    "sha256": "954a01a6847a288c643ad0eaddc3131f48a871384d8d37dc9fe92d57d6aabf94",
+    "note": "protocol 6 (Plugin Framework); registry.opentofu.org lists no signing key for this release, so it verifies against the trusted key 18C770C37712658E (internal/registry/keys)"
   }
 }

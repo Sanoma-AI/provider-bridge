@@ -1,0 +1,790 @@
+{
+  "dataSources": {
+    "supabase_apikeys": {
+      "block": {
+        "attributes": {
+          "anon_key": {
+            "computed": true,
+            "description": "Anonymous API key for the project",
+            "descriptionKind": "markdown",
+            "sensitive": true,
+            "type": "string"
+          },
+          "project_ref": {
+            "description": "Project reference ID",
+            "descriptionKind": "markdown",
+            "required": true,
+            "type": "string"
+          },
+          "publishable_key": {
+            "computed": true,
+            "description": "Publishable API key for the project",
+            "descriptionKind": "markdown",
+            "sensitive": true,
+            "type": "string"
+          },
+          "secret_keys": {
+            "computed": true,
+            "description": "List of secret API keys for the project",
+            "descriptionKind": "markdown",
+            "nestedType": {
+              "attributes": {
+                "api_key": {
+                  "computed": true,
+                  "description": "The secret API key value",
+                  "descriptionKind": "markdown",
+                  "sensitive": true,
+                  "type": "string"
+                },
+                "name": {
+                  "computed": true,
+                  "description": "Name of the secret key",
+                  "descriptionKind": "markdown",
+                  "type": "string"
+                }
+              },
+              "nesting": "list"
+            },
+            "sensitive": true,
+            "type": [
+              "list",
+              [
+                "object",
+                {
+                  "api_key": "string",
+                  "name": "string"
+                }
+              ]
+            ]
+          },
+          "service_role_key": {
+            "computed": true,
+            "description": "Service role API key for the project",
+            "descriptionKind": "markdown",
+            "sensitive": true,
+            "type": "string"
+          }
+        },
+        "blocks": {},
+        "description": "API Keys data source",
+        "descriptionKind": "markdown"
+      },
+      "schemaVersion": 0
+    },
+    "supabase_branch": {
+      "block": {
+        "attributes": {
+          "branches": {
+            "computed": true,
+            "description": "Branch databases",
+            "descriptionKind": "markdown",
+            "nestedType": {
+              "attributes": {
+                "git_branch": {
+                  "computed": true,
+                  "description": "Git branch",
+                  "descriptionKind": "markdown",
+                  "type": "string"
+                },
+                "id": {
+                  "computed": true,
+                  "description": "Branch identifier",
+                  "descriptionKind": "markdown",
+                  "type": "string"
+                },
+                "project_ref": {
+                  "computed": true,
+                  "description": "Branch project ref",
+                  "descriptionKind": "markdown",
+                  "type": "string"
+                }
+              },
+              "nesting": "set"
+            },
+            "type": [
+              "set",
+              [
+                "object",
+                {
+                  "git_branch": "string",
+                  "id": "string",
+                  "project_ref": "string"
+                }
+              ]
+            ]
+          },
+          "parent_project_ref": {
+            "description": "Parent project ref",
+            "descriptionKind": "markdown",
+            "required": true,
+            "type": "string"
+          }
+        },
+        "blocks": {},
+        "description": "Branch data source",
+        "descriptionKind": "markdown"
+      },
+      "schemaVersion": 0
+    },
+    "supabase_network_bans": {
+      "block": {
+        "attributes": {
+          "banned_ipv4_addresses": {
+            "computed": true,
+            "description": "List of banned IPv4 addresses",
+            "descriptionKind": "markdown",
+            "type": [
+              "set",
+              "string"
+            ]
+          },
+          "project_ref": {
+            "description": "Project reference ID",
+            "descriptionKind": "markdown",
+            "required": true,
+            "type": "string"
+          }
+        },
+        "blocks": {},
+        "description": "Network bans data source",
+        "descriptionKind": "markdown"
+      },
+      "schemaVersion": 0
+    },
+    "supabase_pooler": {
+      "block": {
+        "attributes": {
+          "project_ref": {
+            "description": "Project ref",
+            "descriptionKind": "markdown",
+            "required": true,
+            "type": "string"
+          },
+          "url": {
+            "computed": true,
+            "description": "Map of pooler mode to connection string",
+            "descriptionKind": "markdown",
+            "type": [
+              "map",
+              "string"
+            ]
+          }
+        },
+        "blocks": {},
+        "description": "Pooler data source",
+        "descriptionKind": "markdown"
+      },
+      "schemaVersion": 0
+    }
+  },
+  "formatVersion": 1,
+  "protocol": 6,
+  "providerConfig": {
+    "attributes": {
+      "access_token": {
+        "description": "Supabase access token. Can also be set via the `SUPABASE_ACCESS_TOKEN` environment variable. When both are specified, the provider configuration takes precedence over the environment variable. Generate a token from the [Supabase Dashboard](https://supabase.com/dashboard/account/tokens).",
+        "descriptionKind": "markdown",
+        "optional": true,
+        "sensitive": true,
+        "type": "string"
+      },
+      "endpoint": {
+        "description": "Supabase API endpoint. Can also be set via the `SUPABASE_API_ENDPOINT` environment variable. If neither is set, defaults to `https://api.supabase.com`. When both are specified, the provider configuration takes precedence over the environment variable.",
+        "descriptionKind": "markdown",
+        "optional": true,
+        "type": "string"
+      }
+    },
+    "blocks": {}
+  },
+  "resources": {
+    "supabase_apikey": {
+      "block": {
+        "attributes": {
+          "api_key": {
+            "computed": true,
+            "description": "API key",
+            "descriptionKind": "markdown",
+            "sensitive": true,
+            "type": "string"
+          },
+          "description": {
+            "description": "Description of the API key",
+            "descriptionKind": "markdown",
+            "optional": true,
+            "type": "string"
+          },
+          "id": {
+            "computed": true,
+            "description": "API key identifier",
+            "descriptionKind": "markdown",
+            "type": "string"
+          },
+          "name": {
+            "description": "Name of the API key",
+            "descriptionKind": "markdown",
+            "required": true,
+            "type": "string"
+          },
+          "project_ref": {
+            "description": "Project reference ID",
+            "descriptionKind": "markdown",
+            "required": true,
+            "type": "string"
+          },
+          "secret_jwt_template": {
+            "computed": true,
+            "description": "Secret JWT template",
+            "descriptionKind": "markdown",
+            "nestedType": {
+              "attributes": {
+                "role": {
+                  "computed": true,
+                  "description": "Role of the secret JWT template",
+                  "descriptionKind": "markdown",
+                  "type": "string"
+                }
+              },
+              "nesting": "single"
+            },
+            "type": [
+              "object",
+              {
+                "role": "string"
+              }
+            ]
+          },
+          "type": {
+            "computed": true,
+            "description": "Type of the API key",
+            "descriptionKind": "markdown",
+            "type": "string"
+          }
+        },
+        "blocks": {},
+        "description": "API Key resource",
+        "descriptionKind": "markdown"
+      },
+      "schemaVersion": 0
+    },
+    "supabase_branch": {
+      "block": {
+        "attributes": {
+          "database": {
+            "computed": true,
+            "description": "Database connection details",
+            "descriptionKind": "markdown",
+            "nestedType": {
+              "attributes": {
+                "host": {
+                  "computed": true,
+                  "description": "Host",
+                  "descriptionKind": "markdown",
+                  "type": "string"
+                },
+                "id": {
+                  "computed": true,
+                  "description": "Branch project ref",
+                  "descriptionKind": "markdown",
+                  "type": "string"
+                },
+                "jwt_secret": {
+                  "computed": true,
+                  "description": "JWT secret",
+                  "descriptionKind": "markdown",
+                  "sensitive": true,
+                  "type": "string"
+                },
+                "password": {
+                  "computed": true,
+                  "description": "Password",
+                  "descriptionKind": "markdown",
+                  "sensitive": true,
+                  "type": "string"
+                },
+                "port": {
+                  "computed": true,
+                  "description": "Port",
+                  "descriptionKind": "markdown",
+                  "type": "number"
+                },
+                "status": {
+                  "computed": true,
+                  "description": "Status",
+                  "descriptionKind": "markdown",
+                  "type": "string"
+                },
+                "user": {
+                  "computed": true,
+                  "description": "User",
+                  "descriptionKind": "markdown",
+                  "type": "string"
+                },
+                "version": {
+                  "computed": true,
+                  "description": "Postgres version",
+                  "descriptionKind": "markdown",
+                  "type": "string"
+                }
+              },
+              "nesting": "single"
+            },
+            "type": [
+              "object",
+              {
+                "host": "string",
+                "id": "string",
+                "jwt_secret": "string",
+                "password": "string",
+                "port": "number",
+                "status": "string",
+                "user": "string",
+                "version": "string"
+              }
+            ]
+          },
+          "git_branch": {
+            "description": "Git branch",
+            "descriptionKind": "markdown",
+            "required": true,
+            "type": "string"
+          },
+          "id": {
+            "computed": true,
+            "description": "Branch identifier",
+            "descriptionKind": "markdown",
+            "type": "string"
+          },
+          "parent_project_ref": {
+            "description": "Parent project ref",
+            "descriptionKind": "markdown",
+            "required": true,
+            "type": "string"
+          },
+          "persistent": {
+            "computed": true,
+            "description": "Branch persistency",
+            "descriptionKind": "markdown",
+            "optional": true,
+            "type": "bool"
+          },
+          "region": {
+            "description": "Database region",
+            "descriptionKind": "markdown",
+            "optional": true,
+            "type": "string"
+          }
+        },
+        "blocks": {},
+        "description": "Branch database resource",
+        "descriptionKind": "markdown"
+      },
+      "schemaVersion": 0
+    },
+    "supabase_edge_function": {
+      "block": {
+        "attributes": {
+          "checksum": {
+            "computed": true,
+            "description": "SHA256 checksum of the deployed function bundle (remote)",
+            "descriptionKind": "markdown",
+            "type": "string"
+          },
+          "created_at": {
+            "computed": true,
+            "description": "Timestamp when the function was created",
+            "descriptionKind": "markdown",
+            "type": "number"
+          },
+          "entrypoint": {
+            "description": "Path to the function entrypoint file",
+            "descriptionKind": "markdown",
+            "required": true,
+            "type": "string"
+          },
+          "id": {
+            "computed": true,
+            "description": "Function identifier",
+            "descriptionKind": "markdown",
+            "type": "string"
+          },
+          "import_map": {
+            "description": "Path to the import map file",
+            "descriptionKind": "markdown",
+            "optional": true,
+            "type": "string"
+          },
+          "local_checksum": {
+            "computed": true,
+            "description": "SHA256 checksum of local source files before upload",
+            "descriptionKind": "markdown",
+            "type": "string"
+          },
+          "name": {
+            "computed": true,
+            "description": "Name of the function (defaults to slug if not specified)",
+            "descriptionKind": "markdown",
+            "optional": true,
+            "type": "string"
+          },
+          "project_ref": {
+            "description": "Project ref",
+            "descriptionKind": "markdown",
+            "required": true,
+            "type": "string"
+          },
+          "slug": {
+            "description": "URL-friendly identifier for the function",
+            "descriptionKind": "markdown",
+            "required": true,
+            "type": "string"
+          },
+          "static_files": {
+            "description": "List of glob patterns for static files to include",
+            "descriptionKind": "markdown",
+            "optional": true,
+            "type": [
+              "list",
+              "string"
+            ]
+          },
+          "status": {
+            "computed": true,
+            "description": "Function deployment status",
+            "descriptionKind": "markdown",
+            "type": "string"
+          },
+          "updated_at": {
+            "computed": true,
+            "description": "Timestamp when the function was last updated",
+            "descriptionKind": "markdown",
+            "type": "number"
+          },
+          "version": {
+            "computed": true,
+            "description": "Currently deployed function version",
+            "descriptionKind": "markdown",
+            "type": "number"
+          }
+        },
+        "blocks": {},
+        "description": "Edge Function resource",
+        "descriptionKind": "markdown"
+      },
+      "schemaVersion": 0
+    },
+    "supabase_edge_function_secrets": {
+      "block": {
+        "attributes": {
+          "id": {
+            "computed": true,
+            "description": "Project identifier",
+            "descriptionKind": "markdown",
+            "type": "string"
+          },
+          "project_ref": {
+            "description": "Project reference ID",
+            "descriptionKind": "markdown",
+            "required": true,
+            "type": "string"
+          },
+          "secret_digests": {
+            "computed": true,
+            "description": "Map of secret name to the SHA-256 hex digest of the secret value. Computed by the provider at plan time (when plaintext values are known) and updated after each apply. Used to detect drift when a secret has been changed outside of Terraform: if the digest returned by the API no longer matches the locally computed digest, the provider marks the affected secret value as null so Terraform will plan an update.",
+            "descriptionKind": "markdown",
+            "type": [
+              "map",
+              "string"
+            ]
+          },
+          "secrets": {
+            "description": "Set of secrets for edge functions",
+            "descriptionKind": "markdown",
+            "nestedType": {
+              "attributes": {
+                "name": {
+                  "description": "Name of the secret. Must not start with the `SUPABASE_` prefix — such names are reserved internally by Supabase, cannot be created, updated, or deleted via the API, and are automatically filtered out from reads and imports.",
+                  "descriptionKind": "markdown",
+                  "required": true,
+                  "type": "string"
+                },
+                "value": {
+                  "description": "The plaintext secret value. Stored in Terraform state when managed by Terraform. After an import this field will be `null` because the Supabase API only returns SHA-256 digests — see the Import section below.",
+                  "descriptionKind": "markdown",
+                  "required": true,
+                  "sensitive": true,
+                  "type": "string"
+                }
+              },
+              "nesting": "set"
+            },
+            "required": true,
+            "type": [
+              "set",
+              [
+                "object",
+                {
+                  "name": "string",
+                  "value": "string"
+                }
+              ]
+            ]
+          }
+        },
+        "blocks": {},
+        "description": "Edge function secrets resource - manages multiple secrets for edge functions",
+        "descriptionKind": "markdown"
+      },
+      "schemaVersion": 0
+    },
+    "supabase_project": {
+      "block": {
+        "attributes": {
+          "database_password": {
+            "description": "Password for the project database",
+            "descriptionKind": "markdown",
+            "required": true,
+            "sensitive": true,
+            "type": "string"
+          },
+          "id": {
+            "computed": true,
+            "description": "Project identifier",
+            "descriptionKind": "markdown",
+            "type": "string"
+          },
+          "instance_size": {
+            "computed": true,
+            "description": "Desired instance size of the project",
+            "descriptionKind": "markdown",
+            "optional": true,
+            "type": "string"
+          },
+          "legacy_api_keys_enabled": {
+            "computed": true,
+            "deprecated": true,
+            "description": "Controls whether `anon` and `service_role` JWT-based api keys should be enabled. Please note: these keys are no longer recommended ([more information here](https://supabase.com/docs/guides/api/api-keys#why-are-anon-and-servicerole-jwt-based-keys-no-longer-recommended)).",
+            "descriptionKind": "markdown",
+            "optional": true,
+            "type": "bool"
+          },
+          "name": {
+            "description": "Name of the project",
+            "descriptionKind": "markdown",
+            "required": true,
+            "type": "string"
+          },
+          "organization_id": {
+            "description": "Organization slug (found in the Supabase dashboard URL or organization settings)",
+            "descriptionKind": "markdown",
+            "required": true,
+            "type": "string"
+          },
+          "region": {
+            "description": "Region where the project is located",
+            "descriptionKind": "markdown",
+            "required": true,
+            "type": "string"
+          }
+        },
+        "blocks": {
+          "timeouts": {
+            "block": {
+              "attributes": {
+                "create": {
+                  "description": "A string that can be [parsed as a duration](https://pkg.go.dev/time#ParseDuration) consisting of numbers and unit suffixes, such as \"30s\" or \"2h45m\". Valid time units are \"s\" (seconds), \"m\" (minutes), \"h\" (hours).",
+                  "descriptionKind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "update": {
+                  "description": "A string that can be [parsed as a duration](https://pkg.go.dev/time#ParseDuration) consisting of numbers and unit suffixes, such as \"30s\" or \"2h45m\". Valid time units are \"s\" (seconds), \"m\" (minutes), \"h\" (hours).",
+                  "descriptionKind": "plain",
+                  "optional": true,
+                  "type": "string"
+                }
+              },
+              "blocks": {}
+            },
+            "nesting": "single"
+          }
+        },
+        "description": "Project resource",
+        "descriptionKind": "markdown"
+      },
+      "schemaVersion": 0
+    },
+    "supabase_settings": {
+      "block": {
+        "attributes": {
+          "api": {
+            "description": "API settings as [serialised JSON](https://api.supabase.com/api/v1#/services/updatePostgRESTConfig)",
+            "descriptionKind": "markdown",
+            "optional": true,
+            "type": "string"
+          },
+          "auth": {
+            "description": "Auth settings as [serialised JSON](https://api.supabase.com/api/v1#/projects%20config/updateV1AuthConfig).\n\n~\u003e Several fields are returned as a hash by the API rather than plaintext. The provider preserves these fields from prior state, so out-of-band changes will not appear in `terraform plan`.\n\nAffected fields: `smtp_pass`, `sms_twilio_auth_token`, `sms_twilio_verify_auth_token`, `sms_messagebird_access_key`, `sms_textlocal_api_key`, `sms_vonage_api_secret`, `security_captcha_secret`, `external_apple_secret`, `external_azure_secret`, `external_bitbucket_secret`, `external_discord_secret`, `external_facebook_secret`, `external_figma_secret`, `external_github_secret`, `external_gitlab_secret`, `external_google_secret`, `external_kakao_secret`, `external_keycloak_secret`, `external_linkedin_oidc_secret`, `external_notion_secret`, `external_slack_oidc_secret`, `external_slack_secret`, `external_spotify_secret`, `external_twitch_secret`, `external_twitter_secret`, `external_workos_secret`, `external_x_secret`, `external_zoom_secret`, `hook_custom_access_token_secrets`, `hook_mfa_verification_attempt_secrets`, `hook_password_verification_attempt_secrets`, `hook_send_email_secrets`, `hook_send_sms_secrets`.",
+            "descriptionKind": "markdown",
+            "optional": true,
+            "type": "string"
+          },
+          "database": {
+            "description": "Database settings as [serialised JSON](https://api.supabase.com/api/v1#/projects%20config/updateConfig)",
+            "descriptionKind": "markdown",
+            "optional": true,
+            "type": "string"
+          },
+          "id": {
+            "computed": true,
+            "description": "Project identifier",
+            "descriptionKind": "markdown",
+            "type": "string"
+          },
+          "network": {
+            "description": "Network settings as serialised JSON",
+            "descriptionKind": "markdown",
+            "optional": true,
+            "type": "string"
+          },
+          "pooler": {
+            "description": "Pooler settings as serialised JSON",
+            "descriptionKind": "markdown",
+            "optional": true,
+            "type": "string"
+          },
+          "project_ref": {
+            "description": "Project reference ID",
+            "descriptionKind": "markdown",
+            "required": true,
+            "type": "string"
+          },
+          "ssl_enforcement": {
+            "description": "Enforce SSL on all database connections. See the [SSL enforcement API](https://api.supabase.com/api/v1#tag/database/put/v1/projects/%7Bref%7D/ssl-enforcement).",
+            "descriptionKind": "markdown",
+            "optional": true,
+            "type": "bool"
+          },
+          "storage": {
+            "description": "Storage settings as serialised JSON",
+            "descriptionKind": "markdown",
+            "optional": true,
+            "type": "string"
+          }
+        },
+        "blocks": {
+          "timeouts": {
+            "block": {
+              "attributes": {
+                "create": {
+                  "description": "A string that can be [parsed as a duration](https://pkg.go.dev/time#ParseDuration) consisting of numbers and unit suffixes, such as \"30s\" or \"2h45m\". Valid time units are \"s\" (seconds), \"m\" (minutes), \"h\" (hours).",
+                  "descriptionKind": "plain",
+                  "optional": true,
+                  "type": "string"
+                },
+                "update": {
+                  "description": "A string that can be [parsed as a duration](https://pkg.go.dev/time#ParseDuration) consisting of numbers and unit suffixes, such as \"30s\" or \"2h45m\". Valid time units are \"s\" (seconds), \"m\" (minutes), \"h\" (hours).",
+                  "descriptionKind": "plain",
+                  "optional": true,
+                  "type": "string"
+                }
+              },
+              "blocks": {}
+            },
+            "nesting": "single"
+          }
+        },
+        "description": "Settings resource",
+        "descriptionKind": "markdown"
+      },
+      "schemaVersion": 0
+    },
+    "supabase_third_party_auth": {
+      "block": {
+        "attributes": {
+          "custom_jwks": {
+            "description": "Custom public JWKS as serialised JSON. Exactly one of `oidc_issuer_url`, `jwks_url`, or `custom_jwks` must be configured. This field follows Terraform provider industry practice for public verification keys and is not marked sensitive; do not include private or symmetric JWK material.",
+            "descriptionKind": "markdown",
+            "optional": true,
+            "type": "string"
+          },
+          "id": {
+            "computed": true,
+            "description": "Third-party auth integration identifier",
+            "descriptionKind": "markdown",
+            "type": "string"
+          },
+          "inserted_at": {
+            "computed": true,
+            "description": "Timestamp when the integration was created",
+            "descriptionKind": "markdown",
+            "type": "string"
+          },
+          "jwks_url": {
+            "description": "JWKS URL. Exactly one of `oidc_issuer_url`, `jwks_url`, or `custom_jwks` must be configured.",
+            "descriptionKind": "markdown",
+            "optional": true,
+            "type": "string"
+          },
+          "oidc_issuer_url": {
+            "description": "OIDC issuer URL. Exactly one of `oidc_issuer_url`, `jwks_url`, or `custom_jwks` must be configured.",
+            "descriptionKind": "markdown",
+            "optional": true,
+            "type": "string"
+          },
+          "project_ref": {
+            "description": "Project reference ID",
+            "descriptionKind": "markdown",
+            "required": true,
+            "type": "string"
+          },
+          "resolved_at": {
+            "computed": true,
+            "description": "Timestamp when JWKS was last resolved",
+            "descriptionKind": "markdown",
+            "type": "string"
+          },
+          "resolved_jwks": {
+            "computed": true,
+            "description": "Resolved JWKS as serialised JSON",
+            "descriptionKind": "markdown",
+            "type": "string"
+          },
+          "type": {
+            "computed": true,
+            "description": "Third-party auth integration type",
+            "descriptionKind": "markdown",
+            "type": "string"
+          },
+          "updated_at": {
+            "computed": true,
+            "description": "Timestamp when the integration was last updated",
+            "descriptionKind": "markdown",
+            "type": "string"
+          }
+        },
+        "blocks": {
+          "timeouts": {
+            "block": {
+              "attributes": {
+                "create": {
+                  "description": "A string that can be [parsed as a duration](https://pkg.go.dev/time#ParseDuration) consisting of numbers and unit suffixes, such as \"30s\" or \"2h45m\". Valid time units are \"s\" (seconds), \"m\" (minutes), \"h\" (hours).",
+                  "descriptionKind": "plain",
+                  "optional": true,
+                  "type": "string"
+                }
+              },
+              "blocks": {}
+            },
+            "nesting": "single"
+          }
+        },
+        "description": "Third-party auth resource",
+        "descriptionKind": "markdown"
+      },
+      "schemaVersion": 0
+    }
+  },
+  "source": "supabase/supabase",
+  "version": "1.11.0"
+}
