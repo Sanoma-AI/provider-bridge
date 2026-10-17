@@ -11,7 +11,7 @@ Provider releases tests and the recorder may download, each pinned by the sha256
 | Source | Version | Protocol | Use |
 | --- | --- | --- | --- |
 | `hashicorp/null` | 3.3.2 | 5 | integration tests and plan/apply fixtures (no credentials) |
-| `kreuzwerker/docker` | 4.6.0 | 5 (SDKv2 muxed with the Plugin Framework) | recorded schema (Sanoma's local Docker host) |
+| `kreuzwerker/docker` | 4.6.0 | 6 as negotiated (the registry lists 5.0; SDKv2 muxed with the Plugin Framework) | recorded schema (Sanoma's local Docker host) |
 | `integrations/github` | 6.13.0 | 5 (SDKv2) | recorded fixtures; plan tests (no credentials) |
 | `stripe/stripe` | 0.3.0 | 6 (Plugin Framework) | recorded schema |
 | `supabase/supabase` | 1.11.0 | 6 (Plugin Framework) | recorded schema |

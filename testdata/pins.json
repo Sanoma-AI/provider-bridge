@@ -12,7 +12,7 @@
   "kreuzwerker/docker": {
     "version": "4.6.0",
     "sha256": "324ed53dbcc72fd2fea78ece67e5897bd2a41e840451438eb00a175824c5de52",
-    "note": "protocol 5 (SDKv2 muxed with the Plugin Framework); the registry serves its signing key 0DCE698927DAF8EC; no credentials: talks to the local Docker daemon"
+    "note": "protocol 6 as the bridge negotiates it (the registry lists 5.0; SDKv2 muxed with the Plugin Framework); the registry serves its signing key 0DCE698927DAF8EC; no credentials: talks to the local Docker daemon"
   },
   "stripe/stripe": {
     "version": "0.3.0",
