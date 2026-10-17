@@ -9,6 +9,11 @@
     "sha256": "2d688e8383ff669297bbb6461f7eb05168f53fe76d3233fdb431e318efedb98f",
     "note": "protocol 5 (SDKv2); recorded with bridge-record"
   },
+  "kreuzwerker/docker": {
+    "version": "4.6.0",
+    "sha256": "324ed53dbcc72fd2fea78ece67e5897bd2a41e840451438eb00a175824c5de52",
+    "note": "protocol 6 as the bridge negotiates it (the registry lists 5.0; SDKv2 muxed with the Plugin Framework); the registry serves its signing key 0DCE698927DAF8EC; no credentials: talks to the local Docker daemon"
+  },
   "stripe/stripe": {
     "version": "0.3.0",
     "sha256": "2e3ae569e1bee7c64ae7f10e6ceaaf5bfab4db7af38979bab28f9b7a35a260c5",

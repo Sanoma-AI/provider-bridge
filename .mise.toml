@@ -45,7 +45,7 @@ description = "Provider-process tests only"
 run = "make test-integration"
 
 [tasks.record]
-description = "Re-record GitHub fixtures, the Stripe and Supabase schemas and null plan/apply fixtures (needs gh auth; never in CI)"
+description = "Re-record GitHub fixtures, the Stripe, Supabase and Docker schemas and null plan/apply fixtures (needs gh auth; never in CI)"
 run = "make record"
 
 [tasks.check-fresh]

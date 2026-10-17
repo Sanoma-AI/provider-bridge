@@ -59,6 +59,7 @@ record:
 	  --import github_branch_protection=provider-bridge:main
 	$(GO) run ./cmd/bridge-record --provider stripe/stripe --version 0.3.0 --schema-only
 	$(GO) run ./cmd/bridge-record --provider supabase/supabase --version 1.11.0 --schema-only
+	$(GO) run ./cmd/bridge-record --provider kreuzwerker/docker --version 4.6.0 --schema-only
 	$(GO) run ./cmd/bridge-record --provider hashicorp/null --version 3.3.2 \
 	  --change 'null_resource=example={"triggers":{"v":"1"}}' \
 	  --change 'null_resource=example={"triggers":{"v":"1"}}' \
