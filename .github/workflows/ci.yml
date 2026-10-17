@@ -30,6 +30,7 @@ jobs:
       # go mod verify, vendor/ and gen/ freshness, terraform-plugin-go guard
       - run: mise run check-fresh
       - run: mise run lint
+      - run: mise x -- goreleaser check
 
   test:
     if: github.event_name != 'schedule'

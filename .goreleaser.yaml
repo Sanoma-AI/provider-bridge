@@ -1,0 +1,44 @@
+# The release of `provider-bridge` on a `v*` tag (.github/workflows/release.yml):
+# a static binary per platform, archived with the licenses, and SHA256SUMS.
+# `mise run snapshot` builds the same into dist/ without publishing.
+version: 2
+
+project_name: provider-bridge
+
+builds:
+  - id: provider-bridge
+    main: ./cmd/provider-bridge
+    binary: provider-bridge
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux]
+    goarch: [arm64, amd64]
+    # The main module builds from vendor/. The version is the tag, which Go
+    # stamps into the build info itself (the schema cache keys on it), so no
+    # -X flags; -s -w only strip the symbol table and DWARF.
+    flags: [-trimpath]
+    ldflags: [-s -w]
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    # The vendored modules' license texts too: the binary links them.
+    files:
+      - LICENSE
+      - NOTICE
+      - README.md
+      - vendor/**/LICENSE*
+      - vendor/**/NOTICE*
+      - vendor/**/PATENTS*
+
+checksum:
+  name_template: SHA256SUMS
+  algorithm: sha256
+
+changelog:
+  use: github
+
+release:
+  # A tag with a pre-release suffix (v0.2.0-rc.1) is a pre-release, never Latest.
+  prerelease: auto
