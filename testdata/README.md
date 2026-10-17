@@ -1,6 +1,6 @@
 # testdata
 
-Fixtures recorded from real OpenTofu providers. They let the bridge's tests, and the Sanoma TypeScript client's tests, run without credentials or network. `cmd/bridge-record`'s `TestReplayFixtures` parses every recorded state against its schema's implied type and checks that no sensitive value escaped scrubbing; `TestSchemaFixtures` checks every schema document is canonical.
+Fixtures recorded from real OpenTofu providers. They let the bridge's tests, and the Sanoma TypeScript client's tests, run without credentials or network. `cmd/bridge-record`'s `TestReplayFixtures` parses every recorded state, config and plan against its schema's implied type and checks that no sensitive value escaped scrubbing; `TestSchemaFixtures` checks every schema document is canonical.
 
 ## Files
 
@@ -10,8 +10,8 @@ Provider releases tests and the recorder may download, each pinned by the sha256
 
 | Source | Version | Protocol | Use |
 | --- | --- | --- | --- |
-| `hashicorp/null` | 3.3.2 | 5 | integration tests (no credentials) |
-| `integrations/github` | 6.13.0 | 5 (SDKv2) | recorded fixtures |
+| `hashicorp/null` | 3.3.2 | 5 | integration tests and plan/apply fixtures (no credentials) |
+| `integrations/github` | 6.13.0 | 5 (SDKv2) | recorded fixtures; plan tests (no credentials) |
 | `stripe/stripe` | 0.3.0 | 6 (Plugin Framework) | recorded schema |
 | `supabase/supabase` | 1.11.0 | 6 (Plugin Framework) | recorded schema |
 
@@ -29,18 +29,23 @@ Every provider comes from `registry.opentofu.org`. It lists no signing key for `
 
 ### `replies/`
 
-`replies/<ns>_<type>_<version>/<resource type>/<import id>/{import,read}.json`. Each file is `{ provider, request, response, scrubbed }`: `request` and `response` are the bridge API messages (`ImportRequest`/`ImportResponse`, `ReadRequest`/`ReadResponse`) in Connect's JSON form, so a fake bridge can return them verbatim; a failed call has `response: { "error": { code, message, diagnostics } }`. `read.json` reads the state the import returned (what a drift check does). `scrubbed` lists the attribute paths replaced by `"<scrubbed>"` and the environment variables whose values were replaced everywhere.
+`replies/<ns>_<type>_<version>/<resource type>/<import id>/{import,read}.json`, and `replies/<ns>_<type>_<version>/<resource type>/<slug>[-update-N|-delete]/{plan,apply}.json` for `--change` (a replace step also has `apply-delete.json`, the delete half applied first). Each file is `{ provider, request, response, scrubbed }`: `request` and `response` are the bridge API messages (`ImportRequest`/`ImportResponse`, `ReadRequest`/`ReadResponse`) in Connect's JSON form, so a fake bridge can return them verbatim; a failed call has `response: { "error": { code, message, diagnostics } }`. `read.json` reads the state the import returned (what a drift check does). In plan and apply fixtures the prior state, the config, `plannedStateJson` and the `planned` plan (re-encoded after scrubbing, unknowns kept) are scrubbed alike. `scrubbed` lists the attribute paths replaced by `"<scrubbed>"` and the environment variables whose values were replaced everywhere.
 
 | Fixture | Recorded with | Outcome |
 | --- | --- | --- |
 | `integrations_github_6.13.0/github_repository/provider-bridge/` | Leon's `gh auth token` as `GITHUB_TOKEN`, config `{"owner":"Sanoma-AI"}`, 2026-10-09 | import + read OK |
 | `integrations_github_6.13.0/github_repository/sanoma/` | same | import + read OK |
 | `integrations_github_6.13.0/github_branch_protection/provider-bridge_main/` | same | `import.json` only: `failed_precondition`, "could not find a branch protection rule with the pattern 'main'" (the branch is unprotected) |
+| `hashicorp_null_3.3.2/null_resource/example/` | no credentials, 2026-10-16 | create: plan `CREATE` with `id` unknown, apply returns the id |
+| `hashicorp_null_3.3.2/null_resource/example-update-1/` | same | `plan.json` only: the same config again is `NONE` |
+| `hashicorp_null_3.3.2/null_resource/example-update-2/` | same | a changed trigger is `REPLACE` (`requiresReplace: ["triggers"]`): `apply-delete.json`, then `apply.json` creates the new object |
+| `hashicorp_null_3.3.2/null_resource/example-delete/` | same | plan `DELETE` (no `planned`), apply returns no resource |
 
 Not recorded:
 
 - **`github_team_membership`**: the `Sanoma-AI` org has no teams, and none was created for this.
 - **Stripe imports and reads**: no Stripe key on the recording machine. Re-record with `STRIPE_API_KEY` (see the README's recorder example).
+- **GitHub plan/apply** (an empty `github_repository` created and deleted in a throwaway organization): no test-org token on the recording machine yet. Record it with the README's `--change` example.
 
 ## Findings
 
@@ -50,5 +55,7 @@ Not recorded:
 - **SDKv2 quirks in GitHub's state**: `fork` is a string (`"false"`); single objects are lists with `maxItems: 1` (`pages`, `security_and_analysis`, `template`); no nested attribute types at all (protocol 5).
 - **Stripe's schema is large and deep**: 2.3 MB, of which about 450 KB is descriptions; 4,949 attributes, 1,135 nested attribute types, nesting five levels deep; the biggest type, `stripe_payment_intent`, is 210 KB on its own. Codegen should be per resource type and lazy.
 - **Stripe has 7 `DynamicPseudoType` attributes**, all card or payment-method details (`stripe_charge.payment_method_details`, `.card`, `.card.wallet`, `stripe_payment_method.card`, `.card.wallet`, `stripe_source.card`, `stripe_source.three_d_secure`). Their state is `{"value": …, "type": …}`; none is on `stripe_product` or `stripe_webhook_endpoint`.
-- **Stripe uses write-only attributes** (369, across 20 resource types: charge, customer, invoice, price, subscription and others). They are always null in state. The bridge sends `write_only_attributes_allowed: false`, which matters only once plan/apply exist.
+- **Stripe uses write-only attributes** (369, across 20 resource types: charge, customer, invoice, price, subscription and others). They are always null in state. The bridge sends `write_only_attributes_allowed: true` when it validates and plans a resource (the proposed new state and the plan hold them as null; only the config passed to apply carries them) and `false` on import and read.
+- **Plan and apply over both protocols, offline** (`TestIntegrationNullPlanApply`, `TestIntegrationTestProviderPlanApply`, `TestIntegrationGitHubPlan`): the proposed new state leaves computed attributes absent from the config null on create, and providers plan them unknown themselves (Plugin Framework over protocol 5 for `null_resource`, which is not SDKv2 since null 3.2, and over protocol 6 for `testprov_item`; SDKv2 for `github_repository`), so the bridge never invents unknowns. A plan from the state apply returned is `NONE`, with no null-versus-empty noise (`triggers` null or `{}` both round-trip). Unknowns cross the wire as cty's msgpack extension; the bridge passes the provider's bytes on as `planned`.
+- **GitHub plans need no credentials** (SDKv2 plans locally; only apply calls the API): a create of `{"name": …, "visibility": "private"}` plans `node_id`, `id`, `repo_id` and 19 other computed attributes unknown; the recorded `provider-bridge` state with its configurable attributes as config plans `NONE`; a new description is an in-place `UPDATE`. SDKv2 quirks: `id` is optional+computed in the schema but an error in config ("Invalid or unknown key"), `private` conflicts with `visibility`, so a config must hold only what a person sets, never the state echoed back. From a thin prior state (attributes null that a read would fill) SDKv2 plans `topics` unknown and `security_and_analysis` null → `[]`, an `UPDATE`: plan from a fresh `Read`, never from a hand-made state.
 - **Stripe marks 10 attributes sensitive**, including `stripe_webhook_endpoint.secret` ("only returned at creation"), so the scrubber covers it without `--scrub`.

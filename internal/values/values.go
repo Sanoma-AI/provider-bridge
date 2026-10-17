@@ -8,7 +8,10 @@
 // JSON out is ctyjson: nulls are kept, sets become arrays, numbers keep full
 // precision, and DynamicPseudoType attributes become {"value":..,"type":..}.
 // JSON in is decoded against the implied type, so omitted attributes are
-// null; unknown values cannot be expressed and are rejected.
+// null; unknown values cannot be expressed and are rejected. A planned
+// value's unknowns go out as null plus their paths (ToJSONUnknown); msgpack
+// carries them as they are. ProposedNew builds the proposed new state a
+// plan starts from.
 package values
 
 import (

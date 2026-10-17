@@ -16,6 +16,7 @@ package sanoma.providerbridge.v1;
 //
 // Error diagnostics from the provider become a Connect error whose details
 // carry one Diagnostic per diagnostic; warnings are returned in the response.
+// Apply is the exception: its errors are in the response, see ApplyResponse.
 service BridgeService {
   // GetSchema downloads (once, verified) and starts the provider, returns its
   // normalized schema document and stops it again. It needs no credentials.
@@ -30,6 +31,15 @@ service BridgeService {
   // when the request names the schema version it was written with. `gone`
   // means it no longer exists.
   rpc Read(ReadRequest) returns (ReadResponse);
+  // Plan computes the change that makes one resource match config, as
+  // OpenTofu's plan does: ValidateResourceConfig, the proposed new state
+  // (config over prior), then PlanResourceChange. It does not refresh:
+  // Read first. A destroy plan is not sent to the provider.
+  rpc Plan(PlanRequest) returns (PlanResponse);
+  // Apply carries out a plan with ApplyResourceChange. Provider errors are
+  // returned in the response, beside whatever state the provider returned,
+  // so an object created before the error is not lost.
+  rpc Apply(ApplyRequest) returns (ApplyResponse);
   // Close stops one configured provider, or all of them.
   rpc Close(CloseRequest) returns (CloseResponse);
 }
@@ -115,6 +125,89 @@ message ReadResponse {
   Resource resource = 1;
   // The remote object no longer exists.
   bool gone = 2;
+  repeated Diagnostic warnings = 3;
+}
+
+message PlanRequest {
+  ProviderRef provider = 1;
+  string type_name = 2;
+  // Prior state as a JSON object, as Read or Apply returned it; empty to
+  // plan a create.
+  string prior_state_json = 3;
+  // Resource.private of the prior state.
+  bytes prior_private = 4;
+  // Resource.schema_version of the prior state. When set, the provider
+  // upgrades the prior state first (as Read does); when unset,
+  // prior_state_json must already match the current schema.
+  optional int64 prior_schema_version = 5;
+  // Desired configuration as a JSON object of the resource type's implied
+  // type; omitted attributes are null, computed-only attributes must be
+  // null. Empty to plan a delete.
+  string config_json = 6;
+}
+
+message PlanResponse {
+  enum Action {
+    ACTION_UNSPECIFIED = 0;
+    // The resource already matches config: nothing to apply.
+    ACTION_NONE = 1;
+    ACTION_CREATE = 2;
+    // Updated in place.
+    ACTION_UPDATE = 3;
+    // An attribute that cannot change in place changed (requires_replace):
+    // the resource must be deleted and created again. planned is the plan
+    // of the new object, as for a create: apply a replace as Apply(prior,
+    // no config, no planned), then Apply(no prior, config, planned).
+    ACTION_REPLACE = 4;
+    ACTION_DELETE = 5;
+  }
+  Action action = 1;
+  // The planned new state as a JSON object, unknown values as null (listed
+  // in unknown_paths). Empty for DELETE.
+  string planned_state_json = 2;
+  // Attributes known only after apply, as paths in the provider's terms
+  // ("id", "rules[0].name", `tags["env"]`); a set with an unknown element
+  // is listed (and null) as a whole.
+  repeated string unknown_paths = 3;
+  // For UPDATE and REPLACE, the attributes whose change requires
+  // replacement; the action is REPLACE exactly when this is not empty.
+  repeated string requires_replace = 4;
+  // The planned state as the provider returned it (a msgpack DynamicValue).
+  // Opaque: pass it to Apply unchanged. Empty for DELETE.
+  bytes planned = 5;
+  // Provider-private planned data. Opaque: pass it to Apply unchanged.
+  bytes planned_private = 6;
+  repeated Diagnostic warnings = 7;
+}
+
+message ApplyRequest {
+  ProviderRef provider = 1;
+  string type_name = 2;
+  // The prior state the plan was made from (PlanRequest's fields, unchanged);
+  // empty for a create.
+  string prior_state_json = 3;
+  // Sent as the planned private data of a delete; ignored otherwise.
+  bytes prior_private = 4;
+  optional int64 prior_schema_version = 5;
+  // The config the plan was made from; empty for a delete.
+  string config_json = 6;
+  // PlanResponse.planned; empty for a delete (and only then: an empty
+  // planned with a config_json is refused).
+  bytes planned = 7;
+  // PlanResponse.planned_private.
+  bytes planned_private = 8;
+}
+
+message ApplyResponse {
+  // The new state. Set whenever the provider returned an object, even
+  // alongside errors (a create that failed half way still has an id);
+  // unset after a delete.
+  Resource resource = 1;
+  // Error diagnostics from the provider. Apply reports them here rather
+  // than as a Connect error so that resource survives. A Connect error
+  // means the request was refused before the provider was called, or the
+  // provider process failed.
+  repeated Diagnostic errors = 2;
   repeated Diagnostic warnings = 3;
 }
 

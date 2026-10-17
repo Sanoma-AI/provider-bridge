@@ -1,9 +1,9 @@
 // Copyright 2026 Sanoma AI
 // SPDX-License-Identifier: FSL-1.1-ALv2
 
-// Command bridge-record records provider schemas and Import/Read replies
-// into testdata/, scrubbed of secrets, so the bridge and its clients can be
-// tested without credentials. It never runs in CI.
+// Command bridge-record records provider schemas and Import/Read and
+// Plan/Apply replies into testdata/, scrubbed of secrets, so the bridge and
+// its clients can be tested without credentials. It never runs in CI.
 //
 //	bridge-record --provider integrations/github --version 6.13.0 \
 //	  --config '{"owner":"Sanoma-AI"}' --config-env token=GITHUB_TOKEN \
@@ -12,8 +12,16 @@
 //
 //	bridge-record --provider stripe/stripe --version 0.3.0 --schema-only
 //
-// It writes testdata/schemas/<ns>_<type>_<version>.json and
-// testdata/replies/<ns>_<type>_<version>/<resource type>/<id>/{import,read}.json.
+//	bridge-record --provider hashicorp/null --version 3.3.2 \
+//	  --change 'null_resource=example={"triggers":{"v":"1"}}' \
+//	  --change 'null_resource=example={"triggers":{"v":"2"}}'
+//
+// It writes testdata/schemas/<ns>_<type>_<version>.json,
+// testdata/replies/<ns>_<type>_<version>/<resource type>/<id>/{import,read}.json
+// and, for --change, <resource type>/<slug>[-update-N|-delete]/{plan,apply}.json:
+// the first --change of a TYPE=SLUG creates the object, each further one
+// updates (or replaces) it, and the recorder then deletes it, recording that
+// too; an object it created is deleted even when a step fails.
 // Each reply fixture is {provider, request, response, scrubbed}: request
 // and response are the bridge API messages in Connect's JSON form; a failed
 // call has response {"error": {code, message, diagnostics}}.
@@ -63,6 +71,7 @@ type options struct {
 	config               string
 	configEnv            multi
 	imports              multi
+	changes              multi
 	scrub                multi
 	out                  string
 	cacheDir             string
@@ -86,6 +95,7 @@ func run(args []string) error {
 	fs.StringVar(&o.config, "config", "{}", "provider config JSON without secrets")
 	fs.Var(&o.configEnv, "config-env", "ATTR=ENV: set config attribute ATTR from environment variable ENV and scrub its value (repeatable)")
 	fs.Var(&o.imports, "import", "TYPE=ID: import and read one resource (repeatable)")
+	fs.Var(&o.changes, "change", "TYPE=SLUG=CONFIG: plan and apply CONFIG (JSON, no secrets) to the object SLUG names; the first creates it, later ones update it, then it is deleted (repeatable)")
 	fs.Var(&o.scrub, "scrub", "TYPE.PATH: also scrub this attribute path (repeatable)")
 	fs.StringVar(&o.out, "out", "testdata", "testdata directory")
 	fs.StringVar(&o.cacheDir, "cache-dir", registry.CacheDir("provider-bridge-test"), "provider cache directory (the tests' cache)")
@@ -177,8 +187,12 @@ func record(ctx context.Context, o *options) error {
 		return err
 	}
 	fmt.Fprintf(os.Stderr, "wrote %s (%d resource types, %d bytes)\n", schemaPath, len(r.schema.Resources), len(sres.Msg.GetSchemaJson()))
-	if o.schemaOnly || len(o.imports) == 0 {
+	if o.schemaOnly || len(o.imports)+len(o.changes) == 0 {
 		return nil
+	}
+	changes, err := parseChanges(o.changes)
+	if err != nil {
+		return err
 	}
 
 	cfg, err := r.config()
@@ -194,6 +208,11 @@ func record(ctx context.Context, o *options) error {
 			return fmt.Errorf("--import %q: want TYPE=ID", imp)
 		}
 		if err := r.importAndRead(ctx, typeName, id); err != nil {
+			return err
+		}
+	}
+	for _, ch := range changes {
+		if err := r.change(ctx, ch); err != nil {
 			return err
 		}
 	}
@@ -270,7 +289,11 @@ func (r *recorder) importAndRead(ctx context.Context, typeName, id string) error
 	return nil
 }
 
+// scrubState scrubs a state (or config) of typeName; empty stays empty.
 func (r *recorder) scrubState(typeName, stateJSON string) (string, error) {
+	if stateJSON == "" {
+		return "", nil
+	}
 	res, ok := r.schema.Resources[typeName]
 	if !ok {
 		return "", fmt.Errorf("schema has no resource type %s", typeName)
@@ -329,8 +352,9 @@ func (r *recorder) write(path string, req, res proto.Message, callErr error) err
 	return nil
 }
 
-// checkPrivate refuses opaque private bytes that contain a secret: they
-// cannot be scrubbed without breaking the provider's round trip.
+// checkPrivate refuses opaque private bytes (and plans) that contain a
+// secret: they cannot be scrubbed without breaking the provider's round
+// trip.
 func (r *recorder) checkPrivate(msg proto.Message) error {
 	var privs [][]byte
 	switch m := msg.(type) {
@@ -341,6 +365,14 @@ func (r *recorder) checkPrivate(msg proto.Message) error {
 	case *bridgev1.ReadRequest:
 		privs = append(privs, m.GetPrivate())
 	case *bridgev1.ReadResponse:
+		privs = append(privs, m.GetResource().GetPrivate())
+	case *bridgev1.PlanRequest:
+		privs = append(privs, m.GetPriorPrivate())
+	case *bridgev1.PlanResponse:
+		privs = append(privs, m.GetPlanned(), m.GetPlannedPrivate())
+	case *bridgev1.ApplyRequest:
+		privs = append(privs, m.GetPriorPrivate(), m.GetPlanned(), m.GetPlannedPrivate())
+	case *bridgev1.ApplyResponse:
 		privs = append(privs, m.GetResource().GetPrivate())
 	}
 	for _, p := range privs {

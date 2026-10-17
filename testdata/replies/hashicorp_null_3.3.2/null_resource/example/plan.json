@@ -1,0 +1,26 @@
+{
+  "provider": {
+    "source": "hashicorp/null",
+    "version": "3.3.2",
+    "sha256": "edab2c30932ca2a35c540352bc21844e7cf06cb7eb6c3eed4fd28d24d20e8d48",
+    "protocol": 5
+  },
+  "request": {
+    "provider": {
+      "source": "hashicorp/null",
+      "version": "3.3.2",
+      "sha256": "edab2c30932ca2a35c540352bc21844e7cf06cb7eb6c3eed4fd28d24d20e8d48"
+    },
+    "typeName": "null_resource",
+    "configJson": "{\"id\":null,\"triggers\":{\"v\":\"1\"}}"
+  },
+  "response": {
+    "action": "ACTION_CREATE",
+    "plannedStateJson": "{\"id\":null,\"triggers\":{\"v\":\"1\"}}",
+    "unknownPaths": [
+      "id"
+    ],
+    "planned": "gqJpZNQAAKh0cmlnZ2Vyc4GhdqEx"
+  },
+  "scrubbed": []
+}

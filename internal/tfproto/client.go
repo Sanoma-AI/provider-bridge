@@ -47,6 +47,15 @@ type wire interface {
 	// readResource reads state; meta is the provider_meta value, nil when
 	// the provider has no provider_meta schema.
 	readResource(ctx context.Context, typeName string, state, private, meta []byte) (dynamicValue, []byte, Diagnostics, error)
+	validateResourceConfig(ctx context.Context, typeName string, config []byte) (Diagnostics, error)
+	planResourceChange(ctx context.Context, typeName string, prior, proposed, config, priorPrivate, meta []byte) (plannedRaw, Diagnostics, error)
+	applyResourceChange(ctx context.Context, typeName string, prior, planned, config, plannedPrivate, meta []byte) (dynamicValue, []byte, Diagnostics, error)
+}
+
+type plannedRaw struct {
+	state           dynamicValue
+	requiresReplace []cty.Path
+	private         []byte
 }
 
 // client implements Provider over a wire.
@@ -234,4 +243,77 @@ func (c *client) ReadResource(ctx context.Context, typeName string, state cty.Va
 		return cty.NilVal, nil, diags, fmt.Errorf("%s new state: %w", typeName, err)
 	}
 	return v, newPrivate, diags, nil
+}
+
+// encode encodes each value as msgpack of ty, naming what in errors.
+func encode(ty cty.Type, typeName string, what []string, vals ...cty.Value) ([][]byte, error) {
+	out := make([][]byte, len(vals))
+	for i, v := range vals {
+		mp, err := values.ToMsgpack(v, ty)
+		if err != nil {
+			return nil, fmt.Errorf("%s %s: %w", typeName, what[i], err)
+		}
+		out[i] = mp
+	}
+	return out, nil
+}
+
+func (c *client) ValidateResourceConfig(ctx context.Context, typeName string, config cty.Value) (Diagnostics, error) {
+	r, _, err := c.resource(ctx, typeName)
+	if err != nil {
+		return nil, err
+	}
+	mp, err := encode(r.Block.ImpliedType(), typeName, []string{"config"}, config)
+	if err != nil {
+		return nil, err
+	}
+	return c.w.validateResourceConfig(ctx, typeName, mp[0])
+}
+
+func (c *client) PlanResourceChange(ctx context.Context, typeName string, prior, proposed, config cty.Value, priorPrivate []byte) (PlannedChange, Diagnostics, error) {
+	r, meta, err := c.resource(ctx, typeName)
+	if err != nil {
+		return PlannedChange{}, nil, err
+	}
+	ty := r.Block.ImpliedType()
+	mp, err := encode(ty, typeName, []string{"prior state", "proposed new state", "config"}, prior, proposed, config)
+	if err != nil {
+		return PlannedChange{}, nil, err
+	}
+	raw, diags, err := c.w.planResourceChange(ctx, typeName, mp[0], mp[1], mp[2], priorPrivate, meta)
+	if err != nil || diags.HasErrors() {
+		return PlannedChange{}, diags, err
+	}
+	state, err := raw.state.decode(ty)
+	if err != nil {
+		return PlannedChange{}, diags, fmt.Errorf("%s planned state: %w", typeName, err)
+	}
+	enc := raw.state.msgpack
+	if len(enc) == 0 {
+		if enc, err = values.ToMsgpack(state, ty); err != nil {
+			return PlannedChange{}, diags, fmt.Errorf("%s planned state: %w", typeName, err)
+		}
+	}
+	return PlannedChange{State: state, Msgpack: enc, RequiresReplace: raw.requiresReplace, Private: raw.private}, diags, nil
+}
+
+func (c *client) ApplyResourceChange(ctx context.Context, typeName string, prior, planned, config cty.Value, plannedPrivate []byte) (cty.Value, []byte, Diagnostics, error) {
+	r, meta, err := c.resource(ctx, typeName)
+	if err != nil {
+		return cty.NilVal, nil, nil, err
+	}
+	ty := r.Block.ImpliedType()
+	mp, err := encode(ty, typeName, []string{"prior state", "planned state", "config"}, prior, planned, config)
+	if err != nil {
+		return cty.NilVal, nil, nil, err
+	}
+	newState, private, diags, err := c.w.applyResourceChange(ctx, typeName, mp[0], mp[1], mp[2], plannedPrivate, meta)
+	if err != nil {
+		return cty.NilVal, nil, diags, err
+	}
+	v, err := newState.decode(ty)
+	if err != nil {
+		return cty.NilVal, nil, diags, fmt.Errorf("%s new state: %w", typeName, err)
+	}
+	return v, private, diags, nil
 }

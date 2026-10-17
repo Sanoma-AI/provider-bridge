@@ -63,6 +63,15 @@ type stateHolder struct {
 	StateJSON string `json:"stateJson"`
 }
 
+// changeHolder holds the states of a Plan or Apply fixture.
+type changeHolder struct {
+	TypeName         string `json:"typeName"`
+	PriorStateJSON   string `json:"priorStateJson"`
+	ConfigJSON       string `json:"configJson"`
+	PlannedStateJSON string `json:"plannedStateJson"`
+	Planned          []byte `json:"planned"`
+}
+
 func checkFixture(t *testing.T, s *schema.ProviderSchema, path string) {
 	t.Helper()
 	b, err := os.ReadFile(path)
@@ -83,6 +92,13 @@ func checkFixture(t *testing.T, s *schema.ProviderSchema, path string) {
 	if err := json.Unmarshal(b, &f); err != nil {
 		t.Fatalf("%s: %v", path, err)
 	}
+	var change struct {
+		Request  changeHolder `json:"request"`
+		Response changeHolder `json:"response"`
+	}
+	if err := json.Unmarshal(b, &change); err != nil {
+		t.Fatalf("%s: %v", path, err)
+	}
 	if f.Provider.Source != s.Source || f.Provider.Version != s.Version || f.Provider.SHA256 == "" {
 		t.Errorf("%s: provider %+v does not match schema %s %s", path, f.Provider, s.Source, s.Version)
 	}
@@ -93,7 +109,33 @@ func checkFixture(t *testing.T, s *schema.ProviderSchema, path string) {
 	if f.Request.StateJSON != "" {
 		states = append(states, f.Request)
 	}
-	if len(states) == 0 && f.Response.Error == nil && !strings.HasSuffix(path, "read.json") {
+	// Plan and Apply: prior state, config, planned state (unknowns null)
+	// and the plan itself, scrubbed alike.
+	typeName := change.Request.TypeName
+	for _, js := range []string{change.Request.PriorStateJSON, change.Request.ConfigJSON, change.Response.PlannedStateJSON} {
+		if js != "" {
+			states = append(states, stateHolder{TypeName: typeName, StateJSON: js})
+		}
+	}
+	for _, mp := range [][]byte{change.Request.Planned, change.Response.Planned} {
+		if len(mp) == 0 {
+			continue
+		}
+		r, ok := s.Resources[typeName]
+		if !ok {
+			t.Errorf("%s: unknown type %s", path, typeName)
+			continue
+		}
+		v, err := values.FromDynamic(mp, nil, r.Block.ImpliedType())
+		if err != nil || v.IsNull() {
+			t.Errorf("%s: planned is not a plan of %s: %v", path, typeName, err)
+		} else if again := newScrubber(nil).State(typeName, r.Block, v); !again.RawEquals(v) {
+			t.Errorf("%s: a sensitive attribute of the plan is not scrubbed", path)
+		}
+	}
+	// A read of a gone object and a delete leave no state.
+	deletes := filepath.Base(path) == "apply-delete.json" || strings.HasSuffix(filepath.Dir(path), "-delete")
+	if len(states) == 0 && f.Response.Error == nil && !strings.HasSuffix(path, "read.json") && !deletes {
 		t.Errorf("%s: neither state nor error", path)
 	}
 	for _, st := range states {

@@ -7,7 +7,8 @@
 //
 // Error diagnostics become a Connect error (FAILED_PRECONDITION,
 // INVALID_ARGUMENT, UNAVAILABLE, NOT_FOUND) with one Diagnostic detail per
-// diagnostic; warnings travel in the response.
+// diagnostic; warnings travel in the response. Apply's provider errors
+// travel in its response too, beside the state they would otherwise lose.
 package server
 
 import (
@@ -93,6 +94,60 @@ func (s *Service) Read(ctx context.Context, req *connect.Request[bridgev1.ReadRe
 	out := &bridgev1.ReadResponse{Gone: gone, Warnings: diagnostics(warnings)}
 	if !gone {
 		out.Resource = resource(res)
+	}
+	return connect.NewResponse(out), nil
+}
+
+var actions = map[provider.Action]bridgev1.PlanResponse_Action{
+	provider.ActionNone:    bridgev1.PlanResponse_ACTION_NONE,
+	provider.ActionCreate:  bridgev1.PlanResponse_ACTION_CREATE,
+	provider.ActionUpdate:  bridgev1.PlanResponse_ACTION_UPDATE,
+	provider.ActionReplace: bridgev1.PlanResponse_ACTION_REPLACE,
+	provider.ActionDelete:  bridgev1.PlanResponse_ACTION_DELETE,
+}
+
+// Plan implements BridgeService.
+func (s *Service) Plan(ctx context.Context, req *connect.Request[bridgev1.PlanRequest]) (*connect.Response[bridgev1.PlanResponse], error) {
+	msg := req.Msg
+	plan, warnings, err := s.m.Plan(ctx, ref(msg.GetProvider()), provider.Change{
+		TypeName:           msg.GetTypeName(),
+		PriorState:         []byte(msg.GetPriorStateJson()),
+		PriorPrivate:       msg.GetPriorPrivate(),
+		PriorSchemaVersion: msg.PriorSchemaVersion,
+		Config:             []byte(msg.GetConfigJson()),
+	})
+	if err != nil {
+		return nil, toConnect(ctx, err)
+	}
+	return connect.NewResponse(&bridgev1.PlanResponse{
+		Action:           actions[plan.Action],
+		PlannedStateJson: string(plan.State),
+		UnknownPaths:     plan.Unknown,
+		RequiresReplace:  plan.RequiresReplace,
+		Planned:          plan.Planned,
+		PlannedPrivate:   plan.Private,
+		Warnings:         diagnostics(warnings),
+	}), nil
+}
+
+// Apply implements BridgeService. Provider errors are in the response.
+func (s *Service) Apply(ctx context.Context, req *connect.Request[bridgev1.ApplyRequest]) (*connect.Response[bridgev1.ApplyResponse], error) {
+	msg := req.Msg
+	res, errs, warnings, err := s.m.Apply(ctx, ref(msg.GetProvider()), provider.Change{
+		TypeName:           msg.GetTypeName(),
+		PriorState:         []byte(msg.GetPriorStateJson()),
+		PriorPrivate:       msg.GetPriorPrivate(),
+		PriorSchemaVersion: msg.PriorSchemaVersion,
+		Config:             []byte(msg.GetConfigJson()),
+		Planned:            msg.GetPlanned(),
+		PlannedPrivate:     msg.GetPlannedPrivate(),
+	})
+	if err != nil {
+		return nil, toConnect(ctx, err)
+	}
+	out := &bridgev1.ApplyResponse{Errors: diagnostics(errs), Warnings: diagnostics(warnings)}
+	if res != nil {
+		out.Resource = resource(*res)
 	}
 	return connect.NewResponse(out), nil
 }

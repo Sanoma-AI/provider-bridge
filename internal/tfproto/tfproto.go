@@ -55,6 +55,28 @@ type Provider interface {
 	UpgradeResourceState(ctx context.Context, typeName string, version int64, rawJSON []byte) (cty.Value, Diagnostics, error)
 	// ReadResource refreshes state; a null new state means the object is gone.
 	ReadResource(ctx context.Context, typeName string, state cty.Value, private []byte) (cty.Value, []byte, Diagnostics, error)
+	// ValidateResourceConfig validates a resource's configuration
+	// (ValidateResourceTypeConfig in protocol 5).
+	ValidateResourceConfig(ctx context.Context, typeName string, config cty.Value) (Diagnostics, error)
+	// PlanResourceChange plans the change from prior (null for a create) to
+	// config, given proposed, the proposed new state (values.ProposedNew).
+	PlanResourceChange(ctx context.Context, typeName string, prior, proposed, config cty.Value, priorPrivate []byte) (PlannedChange, Diagnostics, error)
+	// ApplyResourceChange applies a planned change; a null planned state
+	// (and null config) deletes. The new state is returned even alongside
+	// error diagnostics; null means no object.
+	ApplyResourceChange(ctx context.Context, typeName string, prior, planned, config cty.Value, plannedPrivate []byte) (cty.Value, []byte, Diagnostics, error)
+}
+
+// PlannedChange is a PlanResourceChange result.
+type PlannedChange struct {
+	// State is the planned new state; it may hold unknown values.
+	State cty.Value
+	// Msgpack is State as the provider encoded it.
+	Msgpack []byte
+	// RequiresReplace lists the paths the provider says force a
+	// replacement if they change, changed or not.
+	RequiresReplace []cty.Path
+	Private         []byte
 }
 
 // ImportedResource is one object returned by ImportResourceState.

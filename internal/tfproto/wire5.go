@@ -104,3 +104,56 @@ func (w wire5) readResource(ctx context.Context, typeName string, state, private
 	}
 	return fromDV5(resp.GetNewState()), resp.GetPrivate(), diagnostics(resp.GetDiagnostics()), nil
 }
+
+func (w wire5) validateResourceConfig(ctx context.Context, typeName string, config []byte) (Diagnostics, error) {
+	resp, err := w.rpc.ValidateResourceTypeConfig(ctx, &tfplugin5.ValidateResourceTypeConfig_Request{
+		TypeName:           typeName,
+		Config:             dv5(config),
+		ClientCapabilities: &tfplugin5.ClientCapabilities{WriteOnlyAttributesAllowed: true},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("ValidateResourceTypeConfig: %w", err)
+	}
+	return diagnostics(resp.GetDiagnostics()), nil
+}
+
+func (w wire5) planResourceChange(ctx context.Context, typeName string, prior, proposed, config, priorPrivate, meta []byte) (plannedRaw, Diagnostics, error) {
+	req := &tfplugin5.PlanResourceChange_Request{
+		TypeName:           typeName,
+		PriorState:         dv5(prior),
+		ProposedNewState:   dv5(proposed),
+		Config:             dv5(config),
+		PriorPrivate:       priorPrivate,
+		ClientCapabilities: &tfplugin5.ClientCapabilities{WriteOnlyAttributesAllowed: true},
+	}
+	if meta != nil {
+		req.ProviderMeta = dv5(meta)
+	}
+	resp, err := w.rpc.PlanResourceChange(ctx, req)
+	if err != nil {
+		return plannedRaw{}, nil, fmt.Errorf("PlanResourceChange: %w", err)
+	}
+	return plannedRaw{
+		state:           fromDV5(resp.GetPlannedState()),
+		requiresReplace: paths5(resp.GetRequiresReplace()),
+		private:         resp.GetPlannedPrivate(),
+	}, diagnostics(resp.GetDiagnostics()), nil
+}
+
+func (w wire5) applyResourceChange(ctx context.Context, typeName string, prior, planned, config, plannedPrivate, meta []byte) (dynamicValue, []byte, Diagnostics, error) {
+	req := &tfplugin5.ApplyResourceChange_Request{
+		TypeName:       typeName,
+		PriorState:     dv5(prior),
+		PlannedState:   dv5(planned),
+		Config:         dv5(config),
+		PlannedPrivate: plannedPrivate,
+	}
+	if meta != nil {
+		req.ProviderMeta = dv5(meta)
+	}
+	resp, err := w.rpc.ApplyResourceChange(ctx, req)
+	if err != nil {
+		return dynamicValue{}, nil, nil, fmt.Errorf("ApplyResourceChange: %w", err)
+	}
+	return fromDV5(resp.GetNewState()), resp.GetPrivate(), diagnostics(resp.GetDiagnostics()), nil
+}

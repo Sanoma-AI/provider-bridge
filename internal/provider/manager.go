@@ -3,8 +3,9 @@
 
 // Package provider manages provider instances for the bridge: it resolves a
 // (source, version) to a verified binary, caches schemas, keeps one
-// configured instance per (source, version), and implements Import as
-// ImportResourceState followed by ReadResource.
+// configured instance per (source, version), implements Import as
+// ImportResourceState followed by ReadResource, and Plan and Apply as
+// OpenTofu does (change.go).
 //
 // Errors carry a Code the server maps onto Connect codes, plus the
 // provider's diagnostics.
@@ -460,43 +461,64 @@ func (m *Manager) Import(ctx context.Context, ref Ref, typeName, id string) ([]R
 // read, as OpenTofu does on every refresh; otherwise stateJSON must be of
 // the current implied type.
 func (m *Manager) Read(ctx context.Context, ref Ref, typeName string, stateJSON, private []byte, schemaVersion *int64) (Resource, bool, tfproto.Diagnostics, error) {
-	ref, c, err := m.instance(ctx, ref)
+	ref, c, r, err := m.resourceInstance(ctx, ref, typeName)
 	if err != nil {
 		return Resource{}, false, nil, err
 	}
-	r, ok := c.schema.Resource(typeName)
-	if !ok {
-		return Resource{}, false, nil, newError(CodeInvalidArgument, "", &tfproto.UnknownTypeError{TypeName: typeName})
-	}
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(stateJSON, &obj); err != nil || obj == nil {
-		return Resource{}, false, nil, newError(CodeInvalidArgument, "state_json must be a JSON object", err)
-	}
-	var state cty.Value
-	var warnings tfproto.Diagnostics
-	if schemaVersion != nil {
-		var diags tfproto.Diagnostics
-		state, diags, err = c.inst.UpgradeResourceState(ctx, typeName, *schemaVersion, stateJSON)
-		if err != nil {
-			return Resource{}, false, nil, m.callErr(ref, c, "upgrade state", err)
-		}
-		if diags.HasErrors() {
-			return Resource{}, false, nil, diagError(CodeFailedPrecondition, fmt.Sprintf("upgrade %s state from schema version %d", typeName, *schemaVersion), diags)
-		}
-		warnings = diags.Warnings()
-		if state.IsNull() {
-			return Resource{}, false, nil, newError(CodeFailedPrecondition, fmt.Sprintf("upgrade %s state: provider returned no state", typeName), nil)
-		}
-	} else {
-		if state, err = values.FromJSON(stateJSON, r.Block.ImpliedType()); err != nil {
-			return Resource{}, false, nil, newError(CodeInvalidArgument, "state_json", err)
-		}
-		if state, err = schema.CoerceConfig(r.Block, state); err != nil {
-			return Resource{}, false, nil, newError(CodeInvalidArgument, "state_json", err)
-		}
+	state, warnings, err := m.state(ctx, ref, c, r, typeName, "state_json", stateJSON, schemaVersion)
+	if err != nil {
+		return Resource{}, false, nil, err
 	}
 	res, gone, diags, err := m.read(ctx, ref, c, r, typeName, state, private)
 	return res, gone, append(warnings, diags...), err
+}
+
+// state decodes stateJSON, a resource's state, into a value of its current
+// implied type: through UpgradeResourceState when schemaVersion is set, else
+// directly. field names the request field in errors.
+func (m *Manager) state(ctx context.Context, ref Ref, c *configured, r *schema.Resource, typeName, field string, stateJSON []byte, schemaVersion *int64) (cty.Value, tfproto.Diagnostics, error) {
+	if schemaVersion == nil {
+		v, err := object(r.Block, field, stateJSON)
+		return v, nil, err
+	}
+	if err := isObject(field, stateJSON); err != nil {
+		return cty.NilVal, nil, err
+	}
+	state, diags, err := c.inst.UpgradeResourceState(ctx, typeName, *schemaVersion, stateJSON)
+	if err != nil {
+		return cty.NilVal, nil, m.callErr(ref, c, "upgrade state", err)
+	}
+	if diags.HasErrors() {
+		return cty.NilVal, nil, diagError(CodeFailedPrecondition, fmt.Sprintf("upgrade %s state from schema version %d", typeName, *schemaVersion), diags)
+	}
+	if state.IsNull() {
+		return cty.NilVal, nil, newError(CodeFailedPrecondition, fmt.Sprintf("upgrade %s state: provider returned no state", typeName), nil)
+	}
+	return state, diags.Warnings(), nil
+}
+
+// object decodes a JSON object of b's implied type, normalized as OpenTofu
+// core does (schema.CoerceConfig). field names the request field in errors.
+func object(b *schema.Block, field string, js []byte) (cty.Value, error) {
+	if err := isObject(field, js); err != nil {
+		return cty.NilVal, err
+	}
+	v, err := values.FromJSON(js, b.ImpliedType())
+	if err == nil {
+		v, err = schema.CoerceConfig(b, v)
+	}
+	if err != nil {
+		return cty.NilVal, newError(CodeInvalidArgument, field, err)
+	}
+	return v, nil
+}
+
+func isObject(field string, js []byte) error {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(js, &obj); err != nil || obj == nil {
+		return newError(CodeInvalidArgument, field+" must be a JSON object", err)
+	}
+	return nil
 }
 
 // read calls ReadResource; r is typeName's schema.

@@ -44,6 +44,10 @@ const (
 	BridgeServiceImportProcedure = "/sanoma.providerbridge.v1.BridgeService/Import"
 	// BridgeServiceReadProcedure is the fully-qualified name of the BridgeService's Read RPC.
 	BridgeServiceReadProcedure = "/sanoma.providerbridge.v1.BridgeService/Read"
+	// BridgeServicePlanProcedure is the fully-qualified name of the BridgeService's Plan RPC.
+	BridgeServicePlanProcedure = "/sanoma.providerbridge.v1.BridgeService/Plan"
+	// BridgeServiceApplyProcedure is the fully-qualified name of the BridgeService's Apply RPC.
+	BridgeServiceApplyProcedure = "/sanoma.providerbridge.v1.BridgeService/Apply"
 	// BridgeServiceCloseProcedure is the fully-qualified name of the BridgeService's Close RPC.
 	BridgeServiceCloseProcedure = "/sanoma.providerbridge.v1.BridgeService/Close"
 )
@@ -63,6 +67,15 @@ type BridgeServiceClient interface {
 	// when the request names the schema version it was written with. `gone`
 	// means it no longer exists.
 	Read(context.Context, *connect.Request[v1.ReadRequest]) (*connect.Response[v1.ReadResponse], error)
+	// Plan computes the change that makes one resource match config, as
+	// OpenTofu's plan does: ValidateResourceConfig, the proposed new state
+	// (config over prior), then PlanResourceChange. It does not refresh:
+	// Read first. A destroy plan is not sent to the provider.
+	Plan(context.Context, *connect.Request[v1.PlanRequest]) (*connect.Response[v1.PlanResponse], error)
+	// Apply carries out a plan with ApplyResourceChange. Provider errors are
+	// returned in the response, beside whatever state the provider returned,
+	// so an object created before the error is not lost.
+	Apply(context.Context, *connect.Request[v1.ApplyRequest]) (*connect.Response[v1.ApplyResponse], error)
 	// Close stops one configured provider, or all of them.
 	Close(context.Context, *connect.Request[v1.CloseRequest]) (*connect.Response[v1.CloseResponse], error)
 }
@@ -102,6 +115,18 @@ func NewBridgeServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(bridgeServiceMethods.ByName("Read")),
 			connect.WithClientOptions(opts...),
 		),
+		plan: connect.NewClient[v1.PlanRequest, v1.PlanResponse](
+			httpClient,
+			baseURL+BridgeServicePlanProcedure,
+			connect.WithSchema(bridgeServiceMethods.ByName("Plan")),
+			connect.WithClientOptions(opts...),
+		),
+		apply: connect.NewClient[v1.ApplyRequest, v1.ApplyResponse](
+			httpClient,
+			baseURL+BridgeServiceApplyProcedure,
+			connect.WithSchema(bridgeServiceMethods.ByName("Apply")),
+			connect.WithClientOptions(opts...),
+		),
 		close: connect.NewClient[v1.CloseRequest, v1.CloseResponse](
 			httpClient,
 			baseURL+BridgeServiceCloseProcedure,
@@ -117,6 +142,8 @@ type bridgeServiceClient struct {
 	configure *connect.Client[v1.ConfigureRequest, v1.ConfigureResponse]
 	_import   *connect.Client[v1.ImportRequest, v1.ImportResponse]
 	read      *connect.Client[v1.ReadRequest, v1.ReadResponse]
+	plan      *connect.Client[v1.PlanRequest, v1.PlanResponse]
+	apply     *connect.Client[v1.ApplyRequest, v1.ApplyResponse]
 	close     *connect.Client[v1.CloseRequest, v1.CloseResponse]
 }
 
@@ -140,6 +167,16 @@ func (c *bridgeServiceClient) Read(ctx context.Context, req *connect.Request[v1.
 	return c.read.CallUnary(ctx, req)
 }
 
+// Plan calls sanoma.providerbridge.v1.BridgeService.Plan.
+func (c *bridgeServiceClient) Plan(ctx context.Context, req *connect.Request[v1.PlanRequest]) (*connect.Response[v1.PlanResponse], error) {
+	return c.plan.CallUnary(ctx, req)
+}
+
+// Apply calls sanoma.providerbridge.v1.BridgeService.Apply.
+func (c *bridgeServiceClient) Apply(ctx context.Context, req *connect.Request[v1.ApplyRequest]) (*connect.Response[v1.ApplyResponse], error) {
+	return c.apply.CallUnary(ctx, req)
+}
+
 // Close calls sanoma.providerbridge.v1.BridgeService.Close.
 func (c *bridgeServiceClient) Close(ctx context.Context, req *connect.Request[v1.CloseRequest]) (*connect.Response[v1.CloseResponse], error) {
 	return c.close.CallUnary(ctx, req)
@@ -160,6 +197,15 @@ type BridgeServiceHandler interface {
 	// when the request names the schema version it was written with. `gone`
 	// means it no longer exists.
 	Read(context.Context, *connect.Request[v1.ReadRequest]) (*connect.Response[v1.ReadResponse], error)
+	// Plan computes the change that makes one resource match config, as
+	// OpenTofu's plan does: ValidateResourceConfig, the proposed new state
+	// (config over prior), then PlanResourceChange. It does not refresh:
+	// Read first. A destroy plan is not sent to the provider.
+	Plan(context.Context, *connect.Request[v1.PlanRequest]) (*connect.Response[v1.PlanResponse], error)
+	// Apply carries out a plan with ApplyResourceChange. Provider errors are
+	// returned in the response, beside whatever state the provider returned,
+	// so an object created before the error is not lost.
+	Apply(context.Context, *connect.Request[v1.ApplyRequest]) (*connect.Response[v1.ApplyResponse], error)
 	// Close stops one configured provider, or all of them.
 	Close(context.Context, *connect.Request[v1.CloseRequest]) (*connect.Response[v1.CloseResponse], error)
 }
@@ -195,6 +241,18 @@ func NewBridgeServiceHandler(svc BridgeServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(bridgeServiceMethods.ByName("Read")),
 		connect.WithHandlerOptions(opts...),
 	)
+	bridgeServicePlanHandler := connect.NewUnaryHandler(
+		BridgeServicePlanProcedure,
+		svc.Plan,
+		connect.WithSchema(bridgeServiceMethods.ByName("Plan")),
+		connect.WithHandlerOptions(opts...),
+	)
+	bridgeServiceApplyHandler := connect.NewUnaryHandler(
+		BridgeServiceApplyProcedure,
+		svc.Apply,
+		connect.WithSchema(bridgeServiceMethods.ByName("Apply")),
+		connect.WithHandlerOptions(opts...),
+	)
 	bridgeServiceCloseHandler := connect.NewUnaryHandler(
 		BridgeServiceCloseProcedure,
 		svc.Close,
@@ -211,6 +269,10 @@ func NewBridgeServiceHandler(svc BridgeServiceHandler, opts ...connect.HandlerOp
 			bridgeServiceImportHandler.ServeHTTP(w, r)
 		case BridgeServiceReadProcedure:
 			bridgeServiceReadHandler.ServeHTTP(w, r)
+		case BridgeServicePlanProcedure:
+			bridgeServicePlanHandler.ServeHTTP(w, r)
+		case BridgeServiceApplyProcedure:
+			bridgeServiceApplyHandler.ServeHTTP(w, r)
 		case BridgeServiceCloseProcedure:
 			bridgeServiceCloseHandler.ServeHTTP(w, r)
 		default:
@@ -236,6 +298,14 @@ func (UnimplementedBridgeServiceHandler) Import(context.Context, *connect.Reques
 
 func (UnimplementedBridgeServiceHandler) Read(context.Context, *connect.Request[v1.ReadRequest]) (*connect.Response[v1.ReadResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sanoma.providerbridge.v1.BridgeService.Read is not implemented"))
+}
+
+func (UnimplementedBridgeServiceHandler) Plan(context.Context, *connect.Request[v1.PlanRequest]) (*connect.Response[v1.PlanResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sanoma.providerbridge.v1.BridgeService.Plan is not implemented"))
+}
+
+func (UnimplementedBridgeServiceHandler) Apply(context.Context, *connect.Request[v1.ApplyRequest]) (*connect.Response[v1.ApplyResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sanoma.providerbridge.v1.BridgeService.Apply is not implemented"))
 }
 
 func (UnimplementedBridgeServiceHandler) Close(context.Context, *connect.Request[v1.CloseRequest]) (*connect.Response[v1.CloseResponse], error) {

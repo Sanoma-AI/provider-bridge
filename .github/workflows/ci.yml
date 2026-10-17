@@ -46,11 +46,13 @@ jobs:
             ~/.cache/go-build
             ~/go/pkg/mod
           key: go-test-${{ runner.os }}-${{ hashFiles('go.sum', 'testprovider/go.sum') }}
+      # Bump the key's version when tests start downloading another pinned
+      # provider (v2: integrations/github for TestIntegrationGitHubPlan).
       - name: Provider test cache (verified downloads)
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/provider-bridge-test/registry.opentofu.org
-          key: providers-${{ runner.os }}-${{ hashFiles('testdata/pins.json') }}
+          key: providers-v2-${{ runner.os }}-${{ hashFiles('testdata/pins.json') }}
       # Builds the protocol 6 test provider once (bin/), then runs every test.
       - run: mise run test
 

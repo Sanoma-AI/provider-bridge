@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -109,6 +110,106 @@ func TestHandlers(t *testing.T) {
 	}
 	if _, err := c.Close(ctx, connect.NewRequest(&bridgev1.CloseRequest{})); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestPlanApply(t *testing.T) {
+	c, _ := newClient(t)
+	ctx := context.Background()
+	if _, err := c.Configure(ctx, connect.NewRequest(&bridgev1.ConfigureRequest{Provider: ref})); err != nil {
+		t.Fatal(err)
+	}
+	plan := func(prior *bridgev1.Resource, config string) (*bridgev1.PlanResponse, error) {
+		req := &bridgev1.PlanRequest{Provider: ref, TypeName: "fake_thing", ConfigJson: config}
+		if prior != nil {
+			req.PriorStateJson, req.PriorPrivate, req.PriorSchemaVersion = prior.GetStateJson(), prior.GetPrivate(), &prior.SchemaVersion
+		}
+		res, err := c.Plan(ctx, connect.NewRequest(req))
+		if err != nil {
+			return nil, err
+		}
+		return res.Msg, nil
+	}
+	apply := func(prior *bridgev1.Resource, config string, p *bridgev1.PlanResponse) *bridgev1.ApplyResponse {
+		t.Helper()
+		req := &bridgev1.ApplyRequest{Provider: ref, TypeName: "fake_thing", ConfigJson: config, Planned: p.GetPlanned(), PlannedPrivate: p.GetPlannedPrivate()}
+		if prior != nil {
+			req.PriorStateJson, req.PriorPrivate = prior.GetStateJson(), prior.GetPrivate()
+		}
+		res, err := c.Apply(ctx, connect.NewRequest(req))
+		if err != nil {
+			t.Fatalf("Apply: %v", err)
+		}
+		return res.Msg
+	}
+
+	p, err := plan(nil, `{"secret":"s"}`)
+	if err != nil || p.GetAction() != bridgev1.PlanResponse_ACTION_CREATE ||
+		p.GetPlannedStateJson() != `{"id":null,"name":null,"secret":"s"}` ||
+		strings.Join(p.GetUnknownPaths(), ",") != "id,name" || len(p.GetRequiresReplace()) != 0 {
+		t.Fatalf("Plan create = %v, %v", p, err)
+	}
+	created := apply(nil, `{"secret":"s"}`, p).GetResource()
+	if created.GetStateJson() != `{"id":"new","name":"thing-new","secret":"s"}` || string(created.GetPrivate()) != "planned" || created.GetSchemaVersion() != 1 {
+		t.Fatalf("Apply create = %v", created)
+	}
+
+	if p, err := plan(created, `{"secret":"s"}`); err != nil || p.GetAction() != bridgev1.PlanResponse_ACTION_NONE {
+		t.Fatalf("Plan no change = %v, %v", p, err)
+	}
+	p, err = plan(created, `{"secret":"t"}`)
+	if err != nil || p.GetAction() != bridgev1.PlanResponse_ACTION_REPLACE || strings.Join(p.GetRequiresReplace(), ",") != "secret" ||
+		strings.Join(p.GetUnknownPaths(), ",") != "id,name" {
+		t.Fatalf("Plan replace = %v, %v", p, err)
+	}
+
+	// Provider errors come back in the response, beside the new state.
+	p, _ = plan(nil, `{"secret":"partial"}`)
+	res := apply(nil, `{"secret":"partial"}`, p)
+	if res.GetResource().GetStateJson() == "" || len(res.GetErrors()) != 1 || res.GetErrors()[0].GetAttributePath() != "secret" {
+		t.Fatalf("Apply partial = %v", res)
+	}
+
+	p, err = plan(created, "")
+	if err != nil || p.GetAction() != bridgev1.PlanResponse_ACTION_DELETE || len(p.GetPlanned()) != 0 {
+		t.Fatalf("Plan delete = %v, %v", p, err)
+	}
+	if res := apply(created, "", p); res.GetResource() != nil || len(res.GetErrors()) != 0 {
+		t.Fatalf("Apply delete = %v", res)
+	}
+
+	_, err = plan(nil, `{"secret":"invalid"}`)
+	var cerr *connect.Error
+	if !errors.As(err, &cerr) || cerr.Code() != connect.CodeInvalidArgument || len(cerr.Details()) != 1 {
+		t.Fatalf("Plan invalid config = %v", err)
+	}
+	for name, call := range map[string]func() error{
+		"nothing to plan":      func() error { _, err := plan(nil, ""); return err },
+		"config not an object": func() error { _, err := plan(nil, `[]`); return err },
+		"unknown type": func() error {
+			_, err := c.Plan(ctx, connect.NewRequest(&bridgev1.PlanRequest{Provider: ref, TypeName: "fake_nope", ConfigJson: `{}`}))
+			return err
+		},
+		"config without planned": func() error {
+			_, err := c.Apply(ctx, connect.NewRequest(&bridgev1.ApplyRequest{Provider: ref, TypeName: "fake_thing", ConfigJson: `{}`}))
+			return err
+		},
+		"planned without config": func() error {
+			_, err := c.Apply(ctx, connect.NewRequest(&bridgev1.ApplyRequest{Provider: ref, TypeName: "fake_thing", Planned: p.GetPlanned()}))
+			return err
+		},
+		"planned not msgpack": func() error {
+			_, err := c.Apply(ctx, connect.NewRequest(&bridgev1.ApplyRequest{Provider: ref, TypeName: "fake_thing", ConfigJson: `{}`, Planned: []byte("x")}))
+			return err
+		},
+		"nothing to apply": func() error {
+			_, err := c.Apply(ctx, connect.NewRequest(&bridgev1.ApplyRequest{Provider: ref, TypeName: "fake_thing"}))
+			return err
+		},
+	} {
+		if connect.CodeOf(call()) != connect.CodeInvalidArgument {
+			t.Errorf("%s: want invalid_argument", name)
+		}
 	}
 }
 

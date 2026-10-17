@@ -10,6 +10,7 @@ import (
 
 	"github.com/Sanoma-AI/provider-bridge/gen/tfplugin5"
 	"github.com/Sanoma-AI/provider-bridge/gen/tfplugin6"
+	"github.com/Sanoma-AI/provider-bridge/internal/values"
 )
 
 // A protocol 5 list block and a protocol 6 list nested attribute describe
@@ -101,5 +102,12 @@ func TestDiagnostics(t *testing.T) {
 	}})
 	if !d6.HasErrors() || d6[0].Attribute != `tags["env"]` {
 		t.Fatalf("diagnostics6 = %+v", d6)
+	}
+	p6 := paths6([]*tfplugin6.AttributePath{{Steps: []*tfplugin6.AttributePath_Step{
+		{Selector: &tfplugin6.AttributePath_Step_AttributeName{AttributeName: "rules"}},
+		{Selector: &tfplugin6.AttributePath_Step_ElementKeyInt{ElementKeyInt: 2}},
+	}}})
+	if len(p6) != 1 || values.FormatPath(p6[0]) != "rules[2]" {
+		t.Fatalf("paths6 = %#v", p6)
 	}
 }
