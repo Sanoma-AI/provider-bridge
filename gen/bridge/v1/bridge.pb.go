@@ -24,6 +24,70 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type PlanResponse_Action int32
+
+const (
+	PlanResponse_ACTION_UNSPECIFIED PlanResponse_Action = 0
+	// The resource already matches config: nothing to apply.
+	PlanResponse_ACTION_NONE   PlanResponse_Action = 1
+	PlanResponse_ACTION_CREATE PlanResponse_Action = 2
+	// Updated in place.
+	PlanResponse_ACTION_UPDATE PlanResponse_Action = 3
+	// An attribute that cannot change in place changed (requires_replace):
+	// the resource must be deleted and created again. planned is the plan
+	// of the new object, as for a create: apply a replace as Apply(prior,
+	// no config, no planned), then Apply(no prior, config, planned).
+	PlanResponse_ACTION_REPLACE PlanResponse_Action = 4
+	PlanResponse_ACTION_DELETE  PlanResponse_Action = 5
+)
+
+// Enum value maps for PlanResponse_Action.
+var (
+	PlanResponse_Action_name = map[int32]string{
+		0: "ACTION_UNSPECIFIED",
+		1: "ACTION_NONE",
+		2: "ACTION_CREATE",
+		3: "ACTION_UPDATE",
+		4: "ACTION_REPLACE",
+		5: "ACTION_DELETE",
+	}
+	PlanResponse_Action_value = map[string]int32{
+		"ACTION_UNSPECIFIED": 0,
+		"ACTION_NONE":        1,
+		"ACTION_CREATE":      2,
+		"ACTION_UPDATE":      3,
+		"ACTION_REPLACE":     4,
+		"ACTION_DELETE":      5,
+	}
+)
+
+func (x PlanResponse_Action) Enum() *PlanResponse_Action {
+	p := new(PlanResponse_Action)
+	*p = x
+	return p
+}
+
+func (x PlanResponse_Action) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (PlanResponse_Action) Descriptor() protoreflect.EnumDescriptor {
+	return file_bridge_v1_bridge_proto_enumTypes[0].Descriptor()
+}
+
+func (PlanResponse_Action) Type() protoreflect.EnumType {
+	return &file_bridge_v1_bridge_proto_enumTypes[0]
+}
+
+func (x PlanResponse_Action) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use PlanResponse_Action.Descriptor instead.
+func (PlanResponse_Action) EnumDescriptor() ([]byte, []int) {
+	return file_bridge_v1_bridge_proto_rawDescGZIP(), []int{11, 0}
+}
+
 type Diagnostic_Severity int32
 
 const (
@@ -57,11 +121,11 @@ func (x Diagnostic_Severity) String() string {
 }
 
 func (Diagnostic_Severity) Descriptor() protoreflect.EnumDescriptor {
-	return file_bridge_v1_bridge_proto_enumTypes[0].Descriptor()
+	return file_bridge_v1_bridge_proto_enumTypes[1].Descriptor()
 }
 
 func (Diagnostic_Severity) Type() protoreflect.EnumType {
-	return &file_bridge_v1_bridge_proto_enumTypes[0]
+	return &file_bridge_v1_bridge_proto_enumTypes[1]
 }
 
 func (x Diagnostic_Severity) Number() protoreflect.EnumNumber {
@@ -70,7 +134,7 @@ func (x Diagnostic_Severity) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Diagnostic_Severity.Descriptor instead.
 func (Diagnostic_Severity) EnumDescriptor() ([]byte, []int) {
-	return file_bridge_v1_bridge_proto_rawDescGZIP(), []int{12, 0}
+	return file_bridge_v1_bridge_proto_rawDescGZIP(), []int{16, 0}
 }
 
 // ProviderRef names a provider release on the OpenTofu registry.
@@ -683,6 +747,375 @@ func (x *ReadResponse) GetWarnings() []*Diagnostic {
 	return nil
 }
 
+type PlanRequest struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Provider *ProviderRef           `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
+	TypeName string                 `protobuf:"bytes,2,opt,name=type_name,json=typeName,proto3" json:"type_name,omitempty"`
+	// Prior state as a JSON object, as Read or Apply returned it; empty to
+	// plan a create.
+	PriorStateJson string `protobuf:"bytes,3,opt,name=prior_state_json,json=priorStateJson,proto3" json:"prior_state_json,omitempty"`
+	// Resource.private of the prior state.
+	PriorPrivate []byte `protobuf:"bytes,4,opt,name=prior_private,json=priorPrivate,proto3" json:"prior_private,omitempty"`
+	// Resource.schema_version of the prior state. When set, the provider
+	// upgrades the prior state first (as Read does); when unset,
+	// prior_state_json must already match the current schema.
+	PriorSchemaVersion *int64 `protobuf:"varint,5,opt,name=prior_schema_version,json=priorSchemaVersion,proto3,oneof" json:"prior_schema_version,omitempty"`
+	// Desired configuration as a JSON object of the resource type's implied
+	// type; omitted attributes are null, computed-only attributes must be
+	// null. Empty to plan a delete.
+	ConfigJson    string `protobuf:"bytes,6,opt,name=config_json,json=configJson,proto3" json:"config_json,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PlanRequest) Reset() {
+	*x = PlanRequest{}
+	mi := &file_bridge_v1_bridge_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlanRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlanRequest) ProtoMessage() {}
+
+func (x *PlanRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bridge_v1_bridge_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlanRequest.ProtoReflect.Descriptor instead.
+func (*PlanRequest) Descriptor() ([]byte, []int) {
+	return file_bridge_v1_bridge_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *PlanRequest) GetProvider() *ProviderRef {
+	if x != nil {
+		return x.Provider
+	}
+	return nil
+}
+
+func (x *PlanRequest) GetTypeName() string {
+	if x != nil {
+		return x.TypeName
+	}
+	return ""
+}
+
+func (x *PlanRequest) GetPriorStateJson() string {
+	if x != nil {
+		return x.PriorStateJson
+	}
+	return ""
+}
+
+func (x *PlanRequest) GetPriorPrivate() []byte {
+	if x != nil {
+		return x.PriorPrivate
+	}
+	return nil
+}
+
+func (x *PlanRequest) GetPriorSchemaVersion() int64 {
+	if x != nil && x.PriorSchemaVersion != nil {
+		return *x.PriorSchemaVersion
+	}
+	return 0
+}
+
+func (x *PlanRequest) GetConfigJson() string {
+	if x != nil {
+		return x.ConfigJson
+	}
+	return ""
+}
+
+type PlanResponse struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Action PlanResponse_Action    `protobuf:"varint,1,opt,name=action,proto3,enum=sanoma.providerbridge.v1.PlanResponse_Action" json:"action,omitempty"`
+	// The planned new state as a JSON object, unknown values as null (listed
+	// in unknown_paths). Empty for DELETE.
+	PlannedStateJson string `protobuf:"bytes,2,opt,name=planned_state_json,json=plannedStateJson,proto3" json:"planned_state_json,omitempty"`
+	// Attributes known only after apply, as paths in the provider's terms
+	// ("id", "rules[0].name", `tags["env"]`); a set with an unknown element
+	// is listed (and null) as a whole.
+	UnknownPaths []string `protobuf:"bytes,3,rep,name=unknown_paths,json=unknownPaths,proto3" json:"unknown_paths,omitempty"`
+	// For UPDATE and REPLACE, the attributes whose change requires
+	// replacement; the action is REPLACE exactly when this is not empty.
+	RequiresReplace []string `protobuf:"bytes,4,rep,name=requires_replace,json=requiresReplace,proto3" json:"requires_replace,omitempty"`
+	// The planned state as the provider returned it (a msgpack DynamicValue).
+	// Opaque: pass it to Apply unchanged. Empty for DELETE.
+	Planned []byte `protobuf:"bytes,5,opt,name=planned,proto3" json:"planned,omitempty"`
+	// Provider-private planned data. Opaque: pass it to Apply unchanged.
+	PlannedPrivate []byte        `protobuf:"bytes,6,opt,name=planned_private,json=plannedPrivate,proto3" json:"planned_private,omitempty"`
+	Warnings       []*Diagnostic `protobuf:"bytes,7,rep,name=warnings,proto3" json:"warnings,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *PlanResponse) Reset() {
+	*x = PlanResponse{}
+	mi := &file_bridge_v1_bridge_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlanResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlanResponse) ProtoMessage() {}
+
+func (x *PlanResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bridge_v1_bridge_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlanResponse.ProtoReflect.Descriptor instead.
+func (*PlanResponse) Descriptor() ([]byte, []int) {
+	return file_bridge_v1_bridge_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *PlanResponse) GetAction() PlanResponse_Action {
+	if x != nil {
+		return x.Action
+	}
+	return PlanResponse_ACTION_UNSPECIFIED
+}
+
+func (x *PlanResponse) GetPlannedStateJson() string {
+	if x != nil {
+		return x.PlannedStateJson
+	}
+	return ""
+}
+
+func (x *PlanResponse) GetUnknownPaths() []string {
+	if x != nil {
+		return x.UnknownPaths
+	}
+	return nil
+}
+
+func (x *PlanResponse) GetRequiresReplace() []string {
+	if x != nil {
+		return x.RequiresReplace
+	}
+	return nil
+}
+
+func (x *PlanResponse) GetPlanned() []byte {
+	if x != nil {
+		return x.Planned
+	}
+	return nil
+}
+
+func (x *PlanResponse) GetPlannedPrivate() []byte {
+	if x != nil {
+		return x.PlannedPrivate
+	}
+	return nil
+}
+
+func (x *PlanResponse) GetWarnings() []*Diagnostic {
+	if x != nil {
+		return x.Warnings
+	}
+	return nil
+}
+
+type ApplyRequest struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Provider *ProviderRef           `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
+	TypeName string                 `protobuf:"bytes,2,opt,name=type_name,json=typeName,proto3" json:"type_name,omitempty"`
+	// The prior state the plan was made from (PlanRequest's fields, unchanged);
+	// empty for a create.
+	PriorStateJson string `protobuf:"bytes,3,opt,name=prior_state_json,json=priorStateJson,proto3" json:"prior_state_json,omitempty"`
+	// Sent as the planned private data of a delete; ignored otherwise.
+	PriorPrivate       []byte `protobuf:"bytes,4,opt,name=prior_private,json=priorPrivate,proto3" json:"prior_private,omitempty"`
+	PriorSchemaVersion *int64 `protobuf:"varint,5,opt,name=prior_schema_version,json=priorSchemaVersion,proto3,oneof" json:"prior_schema_version,omitempty"`
+	// The config the plan was made from; empty for a delete.
+	ConfigJson string `protobuf:"bytes,6,opt,name=config_json,json=configJson,proto3" json:"config_json,omitempty"`
+	// PlanResponse.planned; empty for a delete (and only then: an empty
+	// planned with a config_json is refused).
+	Planned []byte `protobuf:"bytes,7,opt,name=planned,proto3" json:"planned,omitempty"`
+	// PlanResponse.planned_private.
+	PlannedPrivate []byte `protobuf:"bytes,8,opt,name=planned_private,json=plannedPrivate,proto3" json:"planned_private,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *ApplyRequest) Reset() {
+	*x = ApplyRequest{}
+	mi := &file_bridge_v1_bridge_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ApplyRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ApplyRequest) ProtoMessage() {}
+
+func (x *ApplyRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_bridge_v1_bridge_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ApplyRequest.ProtoReflect.Descriptor instead.
+func (*ApplyRequest) Descriptor() ([]byte, []int) {
+	return file_bridge_v1_bridge_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *ApplyRequest) GetProvider() *ProviderRef {
+	if x != nil {
+		return x.Provider
+	}
+	return nil
+}
+
+func (x *ApplyRequest) GetTypeName() string {
+	if x != nil {
+		return x.TypeName
+	}
+	return ""
+}
+
+func (x *ApplyRequest) GetPriorStateJson() string {
+	if x != nil {
+		return x.PriorStateJson
+	}
+	return ""
+}
+
+func (x *ApplyRequest) GetPriorPrivate() []byte {
+	if x != nil {
+		return x.PriorPrivate
+	}
+	return nil
+}
+
+func (x *ApplyRequest) GetPriorSchemaVersion() int64 {
+	if x != nil && x.PriorSchemaVersion != nil {
+		return *x.PriorSchemaVersion
+	}
+	return 0
+}
+
+func (x *ApplyRequest) GetConfigJson() string {
+	if x != nil {
+		return x.ConfigJson
+	}
+	return ""
+}
+
+func (x *ApplyRequest) GetPlanned() []byte {
+	if x != nil {
+		return x.Planned
+	}
+	return nil
+}
+
+func (x *ApplyRequest) GetPlannedPrivate() []byte {
+	if x != nil {
+		return x.PlannedPrivate
+	}
+	return nil
+}
+
+type ApplyResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The new state. Set whenever the provider returned an object, even
+	// alongside errors (a create that failed half way still has an id);
+	// unset after a delete.
+	Resource *Resource `protobuf:"bytes,1,opt,name=resource,proto3" json:"resource,omitempty"`
+	// Error diagnostics from the provider. Apply reports them here rather
+	// than as a Connect error so that resource survives. A Connect error
+	// means the request was refused before the provider was called, or the
+	// provider process failed.
+	Errors        []*Diagnostic `protobuf:"bytes,2,rep,name=errors,proto3" json:"errors,omitempty"`
+	Warnings      []*Diagnostic `protobuf:"bytes,3,rep,name=warnings,proto3" json:"warnings,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ApplyResponse) Reset() {
+	*x = ApplyResponse{}
+	mi := &file_bridge_v1_bridge_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ApplyResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ApplyResponse) ProtoMessage() {}
+
+func (x *ApplyResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_bridge_v1_bridge_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ApplyResponse.ProtoReflect.Descriptor instead.
+func (*ApplyResponse) Descriptor() ([]byte, []int) {
+	return file_bridge_v1_bridge_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *ApplyResponse) GetResource() *Resource {
+	if x != nil {
+		return x.Resource
+	}
+	return nil
+}
+
+func (x *ApplyResponse) GetErrors() []*Diagnostic {
+	if x != nil {
+		return x.Errors
+	}
+	return nil
+}
+
+func (x *ApplyResponse) GetWarnings() []*Diagnostic {
+	if x != nil {
+		return x.Warnings
+	}
+	return nil
+}
+
 type CloseRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Unset closes every provider instance.
@@ -693,7 +1126,7 @@ type CloseRequest struct {
 
 func (x *CloseRequest) Reset() {
 	*x = CloseRequest{}
-	mi := &file_bridge_v1_bridge_proto_msgTypes[10]
+	mi := &file_bridge_v1_bridge_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -705,7 +1138,7 @@ func (x *CloseRequest) String() string {
 func (*CloseRequest) ProtoMessage() {}
 
 func (x *CloseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_bridge_v1_bridge_proto_msgTypes[10]
+	mi := &file_bridge_v1_bridge_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -718,7 +1151,7 @@ func (x *CloseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CloseRequest.ProtoReflect.Descriptor instead.
 func (*CloseRequest) Descriptor() ([]byte, []int) {
-	return file_bridge_v1_bridge_proto_rawDescGZIP(), []int{10}
+	return file_bridge_v1_bridge_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *CloseRequest) GetProvider() *ProviderRef {
@@ -736,7 +1169,7 @@ type CloseResponse struct {
 
 func (x *CloseResponse) Reset() {
 	*x = CloseResponse{}
-	mi := &file_bridge_v1_bridge_proto_msgTypes[11]
+	mi := &file_bridge_v1_bridge_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -748,7 +1181,7 @@ func (x *CloseResponse) String() string {
 func (*CloseResponse) ProtoMessage() {}
 
 func (x *CloseResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_bridge_v1_bridge_proto_msgTypes[11]
+	mi := &file_bridge_v1_bridge_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -761,7 +1194,7 @@ func (x *CloseResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CloseResponse.ProtoReflect.Descriptor instead.
 func (*CloseResponse) Descriptor() ([]byte, []int) {
-	return file_bridge_v1_bridge_proto_rawDescGZIP(), []int{11}
+	return file_bridge_v1_bridge_proto_rawDescGZIP(), []int{15}
 }
 
 type Diagnostic struct {
@@ -779,7 +1212,7 @@ type Diagnostic struct {
 
 func (x *Diagnostic) Reset() {
 	*x = Diagnostic{}
-	mi := &file_bridge_v1_bridge_proto_msgTypes[12]
+	mi := &file_bridge_v1_bridge_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -791,7 +1224,7 @@ func (x *Diagnostic) String() string {
 func (*Diagnostic) ProtoMessage() {}
 
 func (x *Diagnostic) ProtoReflect() protoreflect.Message {
-	mi := &file_bridge_v1_bridge_proto_msgTypes[12]
+	mi := &file_bridge_v1_bridge_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -804,7 +1237,7 @@ func (x *Diagnostic) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Diagnostic.ProtoReflect.Descriptor instead.
 func (*Diagnostic) Descriptor() ([]byte, []int) {
-	return file_bridge_v1_bridge_proto_rawDescGZIP(), []int{12}
+	return file_bridge_v1_bridge_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *Diagnostic) GetSeverity() Diagnostic_Severity {
@@ -882,6 +1315,45 @@ const file_bridge_v1_bridge_proto_rawDesc = "" +
 	"\fReadResponse\x12>\n" +
 	"\bresource\x18\x01 \x01(\v2\".sanoma.providerbridge.v1.ResourceR\bresource\x12\x12\n" +
 	"\x04gone\x18\x02 \x01(\bR\x04gone\x12@\n" +
+	"\bwarnings\x18\x03 \x03(\v2$.sanoma.providerbridge.v1.DiagnosticR\bwarnings\"\xad\x02\n" +
+	"\vPlanRequest\x12A\n" +
+	"\bprovider\x18\x01 \x01(\v2%.sanoma.providerbridge.v1.ProviderRefR\bprovider\x12\x1b\n" +
+	"\ttype_name\x18\x02 \x01(\tR\btypeName\x12(\n" +
+	"\x10prior_state_json\x18\x03 \x01(\tR\x0epriorStateJson\x12#\n" +
+	"\rprior_private\x18\x04 \x01(\fR\fpriorPrivate\x125\n" +
+	"\x14prior_schema_version\x18\x05 \x01(\x03H\x00R\x12priorSchemaVersion\x88\x01\x01\x12\x1f\n" +
+	"\vconfig_json\x18\x06 \x01(\tR\n" +
+	"configJsonB\x17\n" +
+	"\x15_prior_schema_version\"\xd8\x03\n" +
+	"\fPlanResponse\x12E\n" +
+	"\x06action\x18\x01 \x01(\x0e2-.sanoma.providerbridge.v1.PlanResponse.ActionR\x06action\x12,\n" +
+	"\x12planned_state_json\x18\x02 \x01(\tR\x10plannedStateJson\x12#\n" +
+	"\runknown_paths\x18\x03 \x03(\tR\funknownPaths\x12)\n" +
+	"\x10requires_replace\x18\x04 \x03(\tR\x0frequiresReplace\x12\x18\n" +
+	"\aplanned\x18\x05 \x01(\fR\aplanned\x12'\n" +
+	"\x0fplanned_private\x18\x06 \x01(\fR\x0eplannedPrivate\x12@\n" +
+	"\bwarnings\x18\a \x03(\v2$.sanoma.providerbridge.v1.DiagnosticR\bwarnings\"~\n" +
+	"\x06Action\x12\x16\n" +
+	"\x12ACTION_UNSPECIFIED\x10\x00\x12\x0f\n" +
+	"\vACTION_NONE\x10\x01\x12\x11\n" +
+	"\rACTION_CREATE\x10\x02\x12\x11\n" +
+	"\rACTION_UPDATE\x10\x03\x12\x12\n" +
+	"\x0eACTION_REPLACE\x10\x04\x12\x11\n" +
+	"\rACTION_DELETE\x10\x05\"\xf1\x02\n" +
+	"\fApplyRequest\x12A\n" +
+	"\bprovider\x18\x01 \x01(\v2%.sanoma.providerbridge.v1.ProviderRefR\bprovider\x12\x1b\n" +
+	"\ttype_name\x18\x02 \x01(\tR\btypeName\x12(\n" +
+	"\x10prior_state_json\x18\x03 \x01(\tR\x0epriorStateJson\x12#\n" +
+	"\rprior_private\x18\x04 \x01(\fR\fpriorPrivate\x125\n" +
+	"\x14prior_schema_version\x18\x05 \x01(\x03H\x00R\x12priorSchemaVersion\x88\x01\x01\x12\x1f\n" +
+	"\vconfig_json\x18\x06 \x01(\tR\n" +
+	"configJson\x12\x18\n" +
+	"\aplanned\x18\a \x01(\fR\aplanned\x12'\n" +
+	"\x0fplanned_private\x18\b \x01(\fR\x0eplannedPrivateB\x17\n" +
+	"\x15_prior_schema_version\"\xcf\x01\n" +
+	"\rApplyResponse\x12>\n" +
+	"\bresource\x18\x01 \x01(\v2\".sanoma.providerbridge.v1.ResourceR\bresource\x12<\n" +
+	"\x06errors\x18\x02 \x03(\v2$.sanoma.providerbridge.v1.DiagnosticR\x06errors\x12@\n" +
 	"\bwarnings\x18\x03 \x03(\v2$.sanoma.providerbridge.v1.DiagnosticR\bwarnings\"Q\n" +
 	"\fCloseRequest\x12A\n" +
 	"\bprovider\x18\x01 \x01(\v2%.sanoma.providerbridge.v1.ProviderRefR\bprovider\"\x0f\n" +
@@ -895,12 +1367,14 @@ const file_bridge_v1_bridge_proto_rawDesc = "" +
 	"\bSeverity\x12\x18\n" +
 	"\x14SEVERITY_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eSEVERITY_ERROR\x10\x01\x12\x14\n" +
-	"\x10SEVERITY_WARNING\x10\x022\xe9\x03\n" +
+	"\x10SEVERITY_WARNING\x10\x022\x9a\x05\n" +
 	"\rBridgeService\x12d\n" +
 	"\tGetSchema\x12*.sanoma.providerbridge.v1.GetSchemaRequest\x1a+.sanoma.providerbridge.v1.GetSchemaResponse\x12d\n" +
 	"\tConfigure\x12*.sanoma.providerbridge.v1.ConfigureRequest\x1a+.sanoma.providerbridge.v1.ConfigureResponse\x12[\n" +
 	"\x06Import\x12'.sanoma.providerbridge.v1.ImportRequest\x1a(.sanoma.providerbridge.v1.ImportResponse\x12U\n" +
-	"\x04Read\x12%.sanoma.providerbridge.v1.ReadRequest\x1a&.sanoma.providerbridge.v1.ReadResponse\x12X\n" +
+	"\x04Read\x12%.sanoma.providerbridge.v1.ReadRequest\x1a&.sanoma.providerbridge.v1.ReadResponse\x12U\n" +
+	"\x04Plan\x12%.sanoma.providerbridge.v1.PlanRequest\x1a&.sanoma.providerbridge.v1.PlanResponse\x12X\n" +
+	"\x05Apply\x12&.sanoma.providerbridge.v1.ApplyRequest\x1a'.sanoma.providerbridge.v1.ApplyResponse\x12X\n" +
 	"\x05Close\x12&.sanoma.providerbridge.v1.CloseRequest\x1a'.sanoma.providerbridge.v1.CloseResponseB\xf2\x01\n" +
 	"\x1ccom.sanoma.providerbridge.v1B\vBridgeProtoP\x01ZCgithub.com/Sanoma-AI/provider-bridge/gen/bridge/v1;providerbridgev1\xa2\x02\x03SPX\xaa\x02\x18Sanoma.Providerbridge.V1\xca\x02\x18Sanoma\\Providerbridge\\V1\xe2\x02$Sanoma\\Providerbridge\\V1\\GPBMetadata\xea\x02\x1aSanoma::Providerbridge::V1b\x06proto3"
 
@@ -916,51 +1390,67 @@ func file_bridge_v1_bridge_proto_rawDescGZIP() []byte {
 	return file_bridge_v1_bridge_proto_rawDescData
 }
 
-var file_bridge_v1_bridge_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_bridge_v1_bridge_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_bridge_v1_bridge_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_bridge_v1_bridge_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_bridge_v1_bridge_proto_goTypes = []any{
-	(Diagnostic_Severity)(0),  // 0: sanoma.providerbridge.v1.Diagnostic.Severity
-	(*ProviderRef)(nil),       // 1: sanoma.providerbridge.v1.ProviderRef
-	(*GetSchemaRequest)(nil),  // 2: sanoma.providerbridge.v1.GetSchemaRequest
-	(*GetSchemaResponse)(nil), // 3: sanoma.providerbridge.v1.GetSchemaResponse
-	(*ConfigureRequest)(nil),  // 4: sanoma.providerbridge.v1.ConfigureRequest
-	(*ConfigureResponse)(nil), // 5: sanoma.providerbridge.v1.ConfigureResponse
-	(*Resource)(nil),          // 6: sanoma.providerbridge.v1.Resource
-	(*ImportRequest)(nil),     // 7: sanoma.providerbridge.v1.ImportRequest
-	(*ImportResponse)(nil),    // 8: sanoma.providerbridge.v1.ImportResponse
-	(*ReadRequest)(nil),       // 9: sanoma.providerbridge.v1.ReadRequest
-	(*ReadResponse)(nil),      // 10: sanoma.providerbridge.v1.ReadResponse
-	(*CloseRequest)(nil),      // 11: sanoma.providerbridge.v1.CloseRequest
-	(*CloseResponse)(nil),     // 12: sanoma.providerbridge.v1.CloseResponse
-	(*Diagnostic)(nil),        // 13: sanoma.providerbridge.v1.Diagnostic
+	(PlanResponse_Action)(0),  // 0: sanoma.providerbridge.v1.PlanResponse.Action
+	(Diagnostic_Severity)(0),  // 1: sanoma.providerbridge.v1.Diagnostic.Severity
+	(*ProviderRef)(nil),       // 2: sanoma.providerbridge.v1.ProviderRef
+	(*GetSchemaRequest)(nil),  // 3: sanoma.providerbridge.v1.GetSchemaRequest
+	(*GetSchemaResponse)(nil), // 4: sanoma.providerbridge.v1.GetSchemaResponse
+	(*ConfigureRequest)(nil),  // 5: sanoma.providerbridge.v1.ConfigureRequest
+	(*ConfigureResponse)(nil), // 6: sanoma.providerbridge.v1.ConfigureResponse
+	(*Resource)(nil),          // 7: sanoma.providerbridge.v1.Resource
+	(*ImportRequest)(nil),     // 8: sanoma.providerbridge.v1.ImportRequest
+	(*ImportResponse)(nil),    // 9: sanoma.providerbridge.v1.ImportResponse
+	(*ReadRequest)(nil),       // 10: sanoma.providerbridge.v1.ReadRequest
+	(*ReadResponse)(nil),      // 11: sanoma.providerbridge.v1.ReadResponse
+	(*PlanRequest)(nil),       // 12: sanoma.providerbridge.v1.PlanRequest
+	(*PlanResponse)(nil),      // 13: sanoma.providerbridge.v1.PlanResponse
+	(*ApplyRequest)(nil),      // 14: sanoma.providerbridge.v1.ApplyRequest
+	(*ApplyResponse)(nil),     // 15: sanoma.providerbridge.v1.ApplyResponse
+	(*CloseRequest)(nil),      // 16: sanoma.providerbridge.v1.CloseRequest
+	(*CloseResponse)(nil),     // 17: sanoma.providerbridge.v1.CloseResponse
+	(*Diagnostic)(nil),        // 18: sanoma.providerbridge.v1.Diagnostic
 }
 var file_bridge_v1_bridge_proto_depIdxs = []int32{
-	1,  // 0: sanoma.providerbridge.v1.GetSchemaRequest.provider:type_name -> sanoma.providerbridge.v1.ProviderRef
-	1,  // 1: sanoma.providerbridge.v1.ConfigureRequest.provider:type_name -> sanoma.providerbridge.v1.ProviderRef
-	13, // 2: sanoma.providerbridge.v1.ConfigureResponse.warnings:type_name -> sanoma.providerbridge.v1.Diagnostic
-	1,  // 3: sanoma.providerbridge.v1.ImportRequest.provider:type_name -> sanoma.providerbridge.v1.ProviderRef
-	6,  // 4: sanoma.providerbridge.v1.ImportResponse.resources:type_name -> sanoma.providerbridge.v1.Resource
-	13, // 5: sanoma.providerbridge.v1.ImportResponse.warnings:type_name -> sanoma.providerbridge.v1.Diagnostic
-	1,  // 6: sanoma.providerbridge.v1.ReadRequest.provider:type_name -> sanoma.providerbridge.v1.ProviderRef
-	6,  // 7: sanoma.providerbridge.v1.ReadResponse.resource:type_name -> sanoma.providerbridge.v1.Resource
-	13, // 8: sanoma.providerbridge.v1.ReadResponse.warnings:type_name -> sanoma.providerbridge.v1.Diagnostic
-	1,  // 9: sanoma.providerbridge.v1.CloseRequest.provider:type_name -> sanoma.providerbridge.v1.ProviderRef
-	0,  // 10: sanoma.providerbridge.v1.Diagnostic.severity:type_name -> sanoma.providerbridge.v1.Diagnostic.Severity
-	2,  // 11: sanoma.providerbridge.v1.BridgeService.GetSchema:input_type -> sanoma.providerbridge.v1.GetSchemaRequest
-	4,  // 12: sanoma.providerbridge.v1.BridgeService.Configure:input_type -> sanoma.providerbridge.v1.ConfigureRequest
-	7,  // 13: sanoma.providerbridge.v1.BridgeService.Import:input_type -> sanoma.providerbridge.v1.ImportRequest
-	9,  // 14: sanoma.providerbridge.v1.BridgeService.Read:input_type -> sanoma.providerbridge.v1.ReadRequest
-	11, // 15: sanoma.providerbridge.v1.BridgeService.Close:input_type -> sanoma.providerbridge.v1.CloseRequest
-	3,  // 16: sanoma.providerbridge.v1.BridgeService.GetSchema:output_type -> sanoma.providerbridge.v1.GetSchemaResponse
-	5,  // 17: sanoma.providerbridge.v1.BridgeService.Configure:output_type -> sanoma.providerbridge.v1.ConfigureResponse
-	8,  // 18: sanoma.providerbridge.v1.BridgeService.Import:output_type -> sanoma.providerbridge.v1.ImportResponse
-	10, // 19: sanoma.providerbridge.v1.BridgeService.Read:output_type -> sanoma.providerbridge.v1.ReadResponse
-	12, // 20: sanoma.providerbridge.v1.BridgeService.Close:output_type -> sanoma.providerbridge.v1.CloseResponse
-	16, // [16:21] is the sub-list for method output_type
-	11, // [11:16] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	2,  // 0: sanoma.providerbridge.v1.GetSchemaRequest.provider:type_name -> sanoma.providerbridge.v1.ProviderRef
+	2,  // 1: sanoma.providerbridge.v1.ConfigureRequest.provider:type_name -> sanoma.providerbridge.v1.ProviderRef
+	18, // 2: sanoma.providerbridge.v1.ConfigureResponse.warnings:type_name -> sanoma.providerbridge.v1.Diagnostic
+	2,  // 3: sanoma.providerbridge.v1.ImportRequest.provider:type_name -> sanoma.providerbridge.v1.ProviderRef
+	7,  // 4: sanoma.providerbridge.v1.ImportResponse.resources:type_name -> sanoma.providerbridge.v1.Resource
+	18, // 5: sanoma.providerbridge.v1.ImportResponse.warnings:type_name -> sanoma.providerbridge.v1.Diagnostic
+	2,  // 6: sanoma.providerbridge.v1.ReadRequest.provider:type_name -> sanoma.providerbridge.v1.ProviderRef
+	7,  // 7: sanoma.providerbridge.v1.ReadResponse.resource:type_name -> sanoma.providerbridge.v1.Resource
+	18, // 8: sanoma.providerbridge.v1.ReadResponse.warnings:type_name -> sanoma.providerbridge.v1.Diagnostic
+	2,  // 9: sanoma.providerbridge.v1.PlanRequest.provider:type_name -> sanoma.providerbridge.v1.ProviderRef
+	0,  // 10: sanoma.providerbridge.v1.PlanResponse.action:type_name -> sanoma.providerbridge.v1.PlanResponse.Action
+	18, // 11: sanoma.providerbridge.v1.PlanResponse.warnings:type_name -> sanoma.providerbridge.v1.Diagnostic
+	2,  // 12: sanoma.providerbridge.v1.ApplyRequest.provider:type_name -> sanoma.providerbridge.v1.ProviderRef
+	7,  // 13: sanoma.providerbridge.v1.ApplyResponse.resource:type_name -> sanoma.providerbridge.v1.Resource
+	18, // 14: sanoma.providerbridge.v1.ApplyResponse.errors:type_name -> sanoma.providerbridge.v1.Diagnostic
+	18, // 15: sanoma.providerbridge.v1.ApplyResponse.warnings:type_name -> sanoma.providerbridge.v1.Diagnostic
+	2,  // 16: sanoma.providerbridge.v1.CloseRequest.provider:type_name -> sanoma.providerbridge.v1.ProviderRef
+	1,  // 17: sanoma.providerbridge.v1.Diagnostic.severity:type_name -> sanoma.providerbridge.v1.Diagnostic.Severity
+	3,  // 18: sanoma.providerbridge.v1.BridgeService.GetSchema:input_type -> sanoma.providerbridge.v1.GetSchemaRequest
+	5,  // 19: sanoma.providerbridge.v1.BridgeService.Configure:input_type -> sanoma.providerbridge.v1.ConfigureRequest
+	8,  // 20: sanoma.providerbridge.v1.BridgeService.Import:input_type -> sanoma.providerbridge.v1.ImportRequest
+	10, // 21: sanoma.providerbridge.v1.BridgeService.Read:input_type -> sanoma.providerbridge.v1.ReadRequest
+	12, // 22: sanoma.providerbridge.v1.BridgeService.Plan:input_type -> sanoma.providerbridge.v1.PlanRequest
+	14, // 23: sanoma.providerbridge.v1.BridgeService.Apply:input_type -> sanoma.providerbridge.v1.ApplyRequest
+	16, // 24: sanoma.providerbridge.v1.BridgeService.Close:input_type -> sanoma.providerbridge.v1.CloseRequest
+	4,  // 25: sanoma.providerbridge.v1.BridgeService.GetSchema:output_type -> sanoma.providerbridge.v1.GetSchemaResponse
+	6,  // 26: sanoma.providerbridge.v1.BridgeService.Configure:output_type -> sanoma.providerbridge.v1.ConfigureResponse
+	9,  // 27: sanoma.providerbridge.v1.BridgeService.Import:output_type -> sanoma.providerbridge.v1.ImportResponse
+	11, // 28: sanoma.providerbridge.v1.BridgeService.Read:output_type -> sanoma.providerbridge.v1.ReadResponse
+	13, // 29: sanoma.providerbridge.v1.BridgeService.Plan:output_type -> sanoma.providerbridge.v1.PlanResponse
+	15, // 30: sanoma.providerbridge.v1.BridgeService.Apply:output_type -> sanoma.providerbridge.v1.ApplyResponse
+	17, // 31: sanoma.providerbridge.v1.BridgeService.Close:output_type -> sanoma.providerbridge.v1.CloseResponse
+	25, // [25:32] is the sub-list for method output_type
+	18, // [18:25] is the sub-list for method input_type
+	18, // [18:18] is the sub-list for extension type_name
+	18, // [18:18] is the sub-list for extension extendee
+	0,  // [0:18] is the sub-list for field type_name
 }
 
 func init() { file_bridge_v1_bridge_proto_init() }
@@ -969,13 +1459,15 @@ func file_bridge_v1_bridge_proto_init() {
 		return
 	}
 	file_bridge_v1_bridge_proto_msgTypes[8].OneofWrappers = []any{}
+	file_bridge_v1_bridge_proto_msgTypes[10].OneofWrappers = []any{}
+	file_bridge_v1_bridge_proto_msgTypes[12].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_bridge_v1_bridge_proto_rawDesc), len(file_bridge_v1_bridge_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   13,
+			NumEnums:      2,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
