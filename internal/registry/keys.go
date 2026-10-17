@@ -21,7 +21,8 @@ var keyFiles embed.FS
 // trustedFiles names the key files trusted for each provider
 // ("namespace/type").
 var trustedFiles = map[string][]string{
-	"stripe/stripe": {"keys/stripe_stripe.asc"},
+	"stripe/stripe":     {"keys/stripe_stripe.asc"},
+	"supabase/supabase": {"keys/supabase_supabase.asc"},
 }
 
 // Keyring maps a provider, "namespace/type" in lower case, to signing keys

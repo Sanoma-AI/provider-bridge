@@ -150,7 +150,7 @@ STRIPE_API_KEY=sk_test_… go run ./cmd/bridge-record \
   --import stripe_product=prod_… --import stripe_webhook_endpoint=we_…
 ```
 
-`mise run record` re-records the committed GitHub fixtures and the Stripe schema.
+`mise run record` re-records the committed GitHub fixtures and the Stripe and Supabase schemas.
 
 ## License
 

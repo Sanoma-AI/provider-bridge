@@ -57,6 +57,7 @@ record:
 	  --import github_repository=sanoma \
 	  --import github_branch_protection=provider-bridge:main
 	$(GO) run ./cmd/bridge-record --provider stripe/stripe --version 0.3.0 --schema-only
+	$(GO) run ./cmd/bridge-record --provider supabase/supabase --version 1.11.0 --schema-only
 
 check-fresh: guard
 	$(GO) mod verify
