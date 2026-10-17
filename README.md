@@ -28,7 +28,7 @@ mise run build                  # bin/provider-bridge, bin/bridge-record
 bin/provider-bridge serve --socket /tmp/bridge.sock --cache-dir ~/.cache/provider-bridge
 ```
 
-Each `v*` tag publishes a [GitHub release](https://github.com/Sanoma-AI/provider-bridge/releases) with a static binary for darwin and linux on arm64 and amd64 (`provider-bridge_<version>_<os>_<arch>.tar.gz`, with the license) and `SHA256SUMS`; see [Releasing](#releasing). Sanoma installs it through its `@sanoma-ai/bridge-<platform>` packages.
+Each `v*` tag publishes a [GitHub release](https://github.com/Sanoma-AI/provider-bridge/releases) with a static binary for darwin and linux on arm64 and amd64 (`provider-bridge_<version>_<os>_<arch>.tar.gz`, with this repo's license and the vendored modules') and `SHA256SUMS`; see [Releasing](#releasing). Sanoma's `@sanoma-ai/bridge-<platform>` packages are to ship these binaries ([Sanoma-AI/sanoma#137](https://github.com/Sanoma-AI/sanoma/issues/137)).
 
 `serve` prints one line on stdout once it accepts connections, `{"event":"ready","socket":"/tmp/bridge.sock"}`; every log line is JSON (`slog`) on stderr, including the providers' own logs, re-emitted with `logger: provider.<source>`. Provider configuration is never logged; only its sha256 is. It stops on SIGTERM, SIGINT or EOF on stdin (so it dies with the Node process that spawned it; pass `--watch-stdin=false` to run it detached), kills every provider and removes the socket.
 
@@ -162,7 +162,7 @@ GITHUB_TOKEN=… go run ./cmd/bridge-record \
 
 ### Releasing
 
-Push a `v*` tag on a commit of `main` whose CI passed; [`release.yml`](.github/workflows/release.yml) checks both, then runs `goreleaser release` ([`.goreleaser.yaml`](.goreleaser.yaml)) with the Go and goreleaser that `.mise.toml` pins. Builds are static (`CGO_ENABLED=0`, `-trimpath`) and carry the tag as their module version, which keys the schema cache. `mise run snapshot` builds the same archives and `SHA256SUMS` into `dist/` without publishing; CI runs `goreleaser check`.
+Push a `v*` tag on a commit of `main` once its push CI passed; [`release.yml`](.github/workflows/release.yml) checks both (re-run it if CI was still running), then runs `goreleaser release` ([`.goreleaser.yaml`](.goreleaser.yaml)) with the Go and goreleaser that `.mise.toml` pins. Builds are static (`CGO_ENABLED=0`, `-trimpath`) and carry the tag as their module version, which keys the schema cache. `mise run snapshot` builds the same archives and `SHA256SUMS` into `dist/` without publishing; CI runs `goreleaser check`.
 
 ## License
 
