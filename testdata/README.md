@@ -11,17 +11,19 @@ Provider releases tests and the recorder may download, each pinned by the sha256
 | Source | Version | Protocol | Use |
 | --- | --- | --- | --- |
 | `hashicorp/null` | 3.3.2 | 5 | integration tests and plan/apply fixtures (no credentials) |
+| `kreuzwerker/docker` | 4.6.0 | 5 (SDKv2 muxed with the Plugin Framework) | recorded schema (Sanoma's local Docker host) |
 | `integrations/github` | 6.13.0 | 5 (SDKv2) | recorded fixtures; plan tests (no credentials) |
 | `stripe/stripe` | 0.3.0 | 6 (Plugin Framework) | recorded schema |
 | `supabase/supabase` | 1.11.0 | 6 (Plugin Framework) | recorded schema |
 
-Every provider comes from `registry.opentofu.org`. It lists no signing key for `stripe/stripe` 0.3.0 or `supabase/supabase` 1.11.0, so the bridge verifies those releases' `SHA256SUMS` (the GitHub release's own file, which the registry points at) against Stripe's key `A6C87736961A5EF6` and Supabase's key `18C770C37712658E`, shipped in [`internal/registry/keys/`](../internal/registry/keys/README.md) with their provenance; the bridge still refuses a release no key signs.
+Every provider comes from `registry.opentofu.org`, which serves the signing key of `kreuzwerker/docker` 4.6.0 (`0DCE698927DAF8EC`) itself. It lists no signing key for `stripe/stripe` 0.3.0 or `supabase/supabase` 1.11.0, so the bridge verifies those releases' `SHA256SUMS` (the GitHub release's own file, which the registry points at) against Stripe's key `A6C87736961A5EF6` and Supabase's key `18C770C37712658E`, shipped in [`internal/registry/keys/`](../internal/registry/keys/README.md) with their provenance; the bridge still refuses a release no key signs.
 
 ### `schemas/`
 
 | File | Recorded with | Notes |
 | --- | --- | --- |
 | `hashicorp_null_3.3.2.json` | no credentials | golden of `TestIntegrationNull`; rewrite with `go test ./internal/provider -update` |
+| `kreuzwerker_docker_4.6.0.json` | no credentials (`--schema-only`) | 12 resource types, 204 KB |
 | `sanoma_testprov_0.0.1.json` | no credentials | golden of the in-tree protocol 6 test provider (`testprovider/`) |
 | `integrations_github_6.13.0.json` | no credentials (`GetSchema` needs no `Configure`) | 88 resource types, 75 data sources, 356 KB |
 | `stripe_stripe_0.3.0.json` | no credentials | 49 resource types, no data sources, 2.3 MB |

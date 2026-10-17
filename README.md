@@ -158,7 +158,7 @@ GITHUB_TOKEN=… go run ./cmd/bridge-record \
   --change 'github_repository=empty={"name":"bridge-record-empty","visibility":"private"}'
 ```
 
-`--change TYPE=SLUG=CONFIG` creates an object (repeat it with the same `TYPE=SLUG` to update it, step by step), then deletes it, recording every plan and apply; it deletes what it created even when a step fails. Use a throwaway organization for it. `mise run record` re-records the committed GitHub import fixtures, the Stripe and Supabase schemas and the `null_resource` plan/apply fixtures.
+`--change TYPE=SLUG=CONFIG` creates an object (repeat it with the same `TYPE=SLUG` to update it, step by step), then deletes it, recording every plan and apply; it deletes what it created even when a step fails. Use a throwaway organization for it. `mise run record` re-records the committed GitHub import fixtures, the Stripe, Supabase and Docker schemas and the `null_resource` plan/apply fixtures.
 
 ### Releasing
 
