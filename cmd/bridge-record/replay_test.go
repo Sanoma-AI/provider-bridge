@@ -134,7 +134,8 @@ func checkFixture(t *testing.T, s *schema.ProviderSchema, path string) {
 		}
 	}
 	// A read of a gone object and a delete leave no state.
-	if len(states) == 0 && f.Response.Error == nil && !strings.HasSuffix(path, "read.json") && !strings.Contains(path, "delete") {
+	deletes := filepath.Base(path) == "apply-delete.json" || strings.HasSuffix(filepath.Dir(path), "-delete")
+	if len(states) == 0 && f.Response.Error == nil && !strings.HasSuffix(path, "read.json") && !deletes {
 		t.Errorf("%s: neither state nor error", path)
 	}
 	for _, st := range states {

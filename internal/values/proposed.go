@@ -91,7 +91,8 @@ func proposeNested(o *schema.Object, prior, config cty.Value) cty.Value {
 }
 
 // proposeCollection merges a list, map or set of nested objects element by
-// element; an element without a prior counterpart is taken from config.
+// element; an element without a prior counterpart is merged with null, as
+// on a create.
 // Lists and maps of dynamically typed objects are tuples and objects.
 func proposeCollection(n schema.Nesting, prior, config cty.Value, elem func(p, c cty.Value) cty.Value, match func(p, c cty.Value) bool) cty.Value {
 	if config.IsNull() || config.LengthInt() == 0 {
@@ -102,9 +103,11 @@ func proposeCollection(n schema.Nesting, prior, config cty.Value, elem func(p, c
 	case schema.NestingList:
 		elems := config.AsValueSlice()
 		for i, c := range elems {
+			p := cty.NullVal(c.Type())
 			if !prior.IsNull() && i < prior.LengthInt() {
-				elems[i] = elem(prior.Index(cty.NumberIntVal(int64(i))), c)
+				p = prior.Index(cty.NumberIntVal(int64(i)))
 			}
+			elems[i] = elem(p, c)
 		}
 		if ty.IsTupleType() {
 			return cty.TupleVal(elems)
@@ -113,9 +116,11 @@ func proposeCollection(n schema.Nesting, prior, config cty.Value, elem func(p, c
 	case schema.NestingMap:
 		elems := config.AsValueMap()
 		for k, c := range elems {
-			if p, ok := element(prior, k); ok {
-				elems[k] = elem(p, c)
+			p, ok := element(prior, k)
+			if !ok {
+				p = cty.NullVal(c.Type())
 			}
+			elems[k] = elem(p, c)
 		}
 		if ty.IsObjectType() {
 			return cty.ObjectVal(elems)

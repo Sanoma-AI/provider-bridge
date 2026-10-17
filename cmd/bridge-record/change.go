@@ -34,7 +34,8 @@ func parseChanges(flags []string) ([]*changeSpec, error) {
 	for _, f := range flags {
 		typeName, rest, ok := strings.Cut(f, "=")
 		name, config, ok2 := strings.Cut(rest, "=")
-		if !ok || !ok2 || typeName == "" || name == "" || !json.Valid([]byte(config)) {
+		var obj map[string]json.RawMessage
+		if !ok || !ok2 || typeName == "" || name == "" || json.Unmarshal([]byte(config), &obj) != nil || obj == nil {
 			return nil, fmt.Errorf("--change %q: want TYPE=SLUG=CONFIG with CONFIG a JSON object", f)
 		}
 		if slug(name) != name {
@@ -135,19 +136,24 @@ func (r *recorder) planApply(ctx context.Context, dir, typeName string, prior *b
 }
 
 // apply calls Apply and writes its reply to path. It returns the new state
-// and whether the call succeeded without errors.
+// and whether the call succeeded without errors; the new state also when
+// recording fails, so what was created is still deleted.
 func (r *recorder) apply(ctx context.Context, path string, req *bridgev1.ApplyRequest) (*bridgev1.Resource, bool, error) {
 	res, err := r.svc.Apply(ctx, connect.NewRequest(req))
+	var live *bridgev1.Resource
+	if err == nil {
+		live = res.Msg.GetResource()
+	}
 	recReq := proto.Clone(req).(*bridgev1.ApplyRequest)
 	var serr error
 	if recReq.PriorStateJson, serr = r.scrubState(req.GetTypeName(), req.GetPriorStateJson()); serr != nil {
-		return nil, false, serr
+		return live, false, serr
 	}
 	if recReq.ConfigJson, serr = r.scrubState(req.GetTypeName(), req.GetConfigJson()); serr != nil {
-		return nil, false, serr
+		return live, false, serr
 	}
 	if recReq.Planned, serr = r.scrubPlanned(req.GetTypeName(), req.GetPlanned()); serr != nil {
-		return nil, false, serr
+		return live, false, serr
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "apply %s: %v\n", path, r.scrubErr(err))
@@ -156,13 +162,13 @@ func (r *recorder) apply(ctx context.Context, path string, req *bridgev1.ApplyRe
 	recRes := proto.Clone(res.Msg).(*bridgev1.ApplyResponse)
 	if recRes.Resource != nil {
 		if recRes.Resource.StateJson, err = r.scrubState(req.GetTypeName(), recRes.GetResource().GetStateJson()); err != nil {
-			return nil, false, err
+			return live, false, err
 		}
 	}
 	for _, d := range res.Msg.GetErrors() {
 		fmt.Fprintf(os.Stderr, "apply %s: %s: %s\n", path, d.GetAttributePath(), r.scrubErr(errors.New(d.GetSummary()+": "+d.GetDetail())))
 	}
-	return res.Msg.GetResource(), len(res.Msg.GetErrors()) == 0, r.write(path, recReq, recRes, nil)
+	return live, len(res.Msg.GetErrors()) == 0, r.write(path, recReq, recRes, nil)
 }
 
 func (r *recorder) scrubPlanRequest(req *bridgev1.PlanRequest) (*bridgev1.PlanRequest, error) {

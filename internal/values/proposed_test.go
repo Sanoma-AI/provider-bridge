@@ -28,8 +28,9 @@ func proposedBlock() *schema.Block {
 		},
 		Blocks: map[string]*schema.NestedBlock{
 			"rule": {Nesting: schema.NestingList, Block: &schema.Block{Attributes: map[string]*schema.Attribute{
-				"name": {Type: cty.String, Required: true},
-				"port": {Type: cty.Number, Optional: true, Computed: true},
+				"name":   {Type: cty.String, Required: true},
+				"port":   {Type: cty.Number, Optional: true, Computed: true},
+				"secret": {Type: cty.String, Optional: true, WriteOnly: true},
 			}}},
 			"member": {Nesting: schema.NestingSet, Block: &schema.Block{Attributes: map[string]*schema.Attribute{
 				"user": {Type: cty.String, Required: true},
@@ -59,18 +60,18 @@ func TestProposedNew(t *testing.T) {
 		`"rule":[{"name":"x","port":80}],"member":[{"user":"u","role":"admin"},{"user":"v","role":"dev"}]}`
 	for name, tc := range map[string]struct{ prior, config, want string }{
 		"create keeps computed null and drops write-only": {
-			config: `{"name":"a","token":"t","rule":[{"name":"x"}],"member":[{"user":"u"}]}`,
-			want:   `{"id":null,"member":[{"role":null,"user":"u"}],"mode":null,"name":"a","rule":[{"name":"x","port":null}],"settings":null,"token":null}`,
+			config: `{"name":"a","token":"t","rule":[{"name":"x","secret":"s"}],"member":[{"user":"u"}]}`,
+			want:   `{"id":null,"member":[{"role":null,"user":"u"}],"mode":null,"name":"a","rule":[{"name":"x","port":null,"secret":null}],"settings":null,"token":null}`,
 		},
 		"computed values absent from config keep their prior values": {
 			prior:  prior,
-			config: `{"name":"b","settings":{"level":2},"rule":[{"name":"y"},{"name":"z"}],"member":[{"user":"v"},{"user":"w"}]}`,
-			want:   `{"id":"1","member":[{"role":"dev","user":"v"},{"role":null,"user":"w"}],"mode":"fast","name":"b","rule":[{"name":"y","port":80},{"name":"z","port":null}],"settings":{"level":2,"version":"v1"},"token":null}`,
+			config: `{"name":"b","settings":{"level":2},"rule":[{"name":"y"},{"name":"z","secret":"s"}],"member":[{"user":"v"},{"user":"w"}]}`,
+			want:   `{"id":"1","member":[{"role":"dev","user":"v"},{"role":null,"user":"w"}],"mode":"fast","name":"b","rule":[{"name":"y","port":80,"secret":null},{"name":"z","port":null,"secret":null}],"settings":{"level":2,"version":"v1"},"token":null}`,
 		},
 		"config wins for an optional computed value": {
 			prior:  prior,
 			config: `{"name":"a","mode":"slow","settings":{"level":1},"rule":[{"name":"x","port":81}]}`,
-			want:   `{"id":"1","member":[],"mode":"slow","name":"a","rule":[{"name":"x","port":81}],"settings":{"level":1,"version":"v1"},"token":null}`,
+			want:   `{"id":"1","member":[],"mode":"slow","name":"a","rule":[{"name":"x","port":81,"secret":null}],"settings":{"level":1,"version":"v1"},"token":null}`,
 		},
 		"removed nested attribute with configured values is null": {
 			prior:  prior,

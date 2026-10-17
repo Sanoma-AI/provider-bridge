@@ -20,7 +20,7 @@ func TestParseChanges(t *testing.T) {
 	if len(got) != 2 || got[0].slug != "one" || len(got[0].configs) != 2 || got[0].configs[1] != `{"n":2}` || got[1].slug != "two" {
 		t.Fatalf("parseChanges = %+v", got)
 	}
-	for _, bad := range []string{`a_x={}`, `a_x=one=`, `a_x=one={`, `a_x=o/ne={}`, `=one={}`} {
+	for _, bad := range []string{`a_x={}`, `a_x=one=`, `a_x=one={`, `a_x=o/ne={}`, `=one={}`, `a_x=one=[]`, `a_x=one=null`} {
 		if _, err := parseChanges([]string{bad}); err == nil {
 			t.Errorf("parseChanges(%q) succeeded", bad)
 		}
