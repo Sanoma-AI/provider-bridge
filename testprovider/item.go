@@ -11,6 +11,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
@@ -21,6 +23,8 @@ import (
 //
 // Read derives the whole state from id: "gone" reads as deleted, "fail"
 // returns an error diagnostic on name, anything else returns fixed values.
+// Create sets id to name (known only after apply), Update applies the plan
+// in place, a changed name requires replacement, and Delete does nothing.
 type item struct{ client *client }
 
 func newItem() resource.Resource { return &item{} }
@@ -48,8 +52,16 @@ func (r *item) Schema(_ context.Context, _ resource.SchemaRequest, resp *resourc
 	resp.Schema = schema.Schema{
 		Description: "A fake item whose state is derived from its id.",
 		Attributes: map[string]schema.Attribute{
-			"id":   schema.StringAttribute{Computed: true, Description: "Identifier."},
-			"name": schema.StringAttribute{Required: true, Description: "Name."},
+			"id": schema.StringAttribute{
+				Computed:      true,
+				Description:   "Identifier.",
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+			},
+			"name": schema.StringAttribute{
+				Required:      true,
+				Description:   "Name.",
+				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()},
+			},
 			"tags": schema.MapAttribute{Optional: true, ElementType: types.StringType},
 			"settings": schema.SingleNestedAttribute{
 				Optional: true,
@@ -124,11 +136,16 @@ func (r *item) Read(ctx context.Context, req resource.ReadRequest, resp *resourc
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
 
+// Create takes the id from the name; name "partial" creates the item but
+// fails afterwards, returning its state with the error.
 func (r *item) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	var plan itemModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	plan.ID = plan.Name
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
+	if plan.Name.ValueString() == "partial" {
+		resp.Diagnostics.AddAttributeError(path.Root("tags"), "Create failed half way", "The item was created but its tags could not be set.")
+	}
 }
 
 func (r *item) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {

@@ -66,7 +66,8 @@ func (l *FakeLauncher) Last() *FakeProvider {
 // fake_thing (id computed, name computed, secret sensitive) and fake_dyn
 // (id, and value of DynamicPseudoType). Import passes the ID through; Read
 // of fake_thing id "gone" returns no object and of id "fail" an error
-// diagnostic on name; Read of fake_dyn returns the state unchanged.
+// diagnostic on name; Read of fake_dyn returns the state unchanged. Plan
+// and Apply: see PlanResourceChange and ApplyResourceChange.
 // Configure fails for api_key "bad"; its config also has a dynamic
 // attribute, extra.
 type FakeProvider struct {
@@ -225,6 +226,54 @@ func (p *FakeProvider) ReadResource(_ context.Context, typeName string, state ct
 	default:
 		return thing(id), append(private, '+'), nil, nil
 	}
+}
+
+// ValidateResourceConfig rejects fake_thing secret "invalid".
+func (p *FakeProvider) ValidateResourceConfig(_ context.Context, _ string, config cty.Value) (tfproto.Diagnostics, error) {
+	if secret(config) == "invalid" {
+		return tfproto.Diagnostics{{Severity: tfproto.SeverityError, Summary: "Invalid secret", Attribute: "secret"}}, nil
+	}
+	return nil, nil
+}
+
+func secret(v cty.Value) string {
+	if !v.Type().HasAttribute("secret") {
+		return ""
+	}
+	if s := v.GetAttr("secret"); !s.IsNull() {
+		return s.AsString()
+	}
+	return ""
+}
+
+// PlanResourceChange plans the proposed state, with id and name unknown
+// on create; secret requires replacement.
+func (p *FakeProvider) PlanResourceChange(_ context.Context, _ string, prior, proposed, _ cty.Value, _ []byte) (tfproto.PlannedChange, tfproto.Diagnostics, error) {
+	planned := proposed
+	if prior.IsNull() && proposed.Type().HasAttribute("name") {
+		attrs := proposed.AsValueMap()
+		attrs["id"], attrs["name"] = cty.UnknownVal(cty.String), cty.UnknownVal(cty.String)
+		planned = cty.ObjectVal(attrs)
+	}
+	mp, err := values.ToMsgpack(planned, planned.Type())
+	return tfproto.PlannedChange{State: planned, Msgpack: mp, RequiresReplace: []cty.Path{cty.GetAttrPath("secret")}, Private: []byte("planned")}, nil, err
+}
+
+// ApplyResourceChange returns the planned state with id "new" and name
+// "thing-new" filled in; with secret "partial" it also returns an error.
+func (p *FakeProvider) ApplyResourceChange(_ context.Context, _ string, _, planned, config cty.Value, private []byte) (cty.Value, []byte, tfproto.Diagnostics, error) {
+	if planned.IsNull() {
+		return planned, nil, nil, nil
+	}
+	attrs := planned.AsValueMap()
+	if !attrs["id"].IsKnown() {
+		attrs["id"], attrs["name"] = cty.StringVal("new"), cty.StringVal("thing-new")
+	}
+	var diags tfproto.Diagnostics
+	if secret(config) == "partial" {
+		diags = tfproto.Diagnostics{{Severity: tfproto.SeverityError, Summary: "Create failed half way", Attribute: "secret"}}
+	}
+	return cty.ObjectVal(attrs), private, diags, nil
 }
 
 // SetSchema records that the schema was seeded.

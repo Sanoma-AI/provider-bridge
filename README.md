@@ -1,8 +1,8 @@
 # provider-bridge
 
-A Go sidecar that runs existing OpenTofu providers and serves them to the Sanoma engine. It downloads a provider from the registry, verifies it, starts it as a plugin subprocess, speaks the plugin protocol (versions 5 and 6) to it, and exposes `GetSchema`, `Configure`, `Import`, `Read` and `Close` over ConnectRPC on a unix socket. Sanoma can then read and detect drift on vendor resources through maintained providers instead of a hand-written connector per vendor.
+A Go sidecar that runs existing OpenTofu providers and serves them to the Sanoma engine. It downloads a provider from the registry, verifies it, starts it as a plugin subprocess, speaks the plugin protocol (versions 5 and 6) to it, and exposes `GetSchema`, `Configure`, `Import`, `Read`, `Plan`, `Apply` and `Close` over ConnectRPC on a unix socket. Sanoma can then read, detect drift on and change vendor resources through maintained providers instead of a hand-written connector per vendor.
 
-GitHub (`integrations/github`, plugin protocol 5) is the first vendor and Stripe (`stripe/stripe`, plugin protocol 6) the second, so both provider build styles (SDKv2 and Plugin Framework) are covered. This version reads only: schema, import and read. Plan and apply come later.
+GitHub (`integrations/github`, plugin protocol 5) is the first vendor and Stripe (`stripe/stripe`, plugin protocol 6) the second, so both provider build styles (SDKv2 and Plugin Framework) are covered.
 
 ## How it fits
 
@@ -76,13 +76,15 @@ gRPC and the Connect binary protocol work too, over HTTP/2 without TLS.
 | `Configure` | `provider`, `configJson` | `warnings`, `sha256` | Starts a long-lived provider (seeded with the known schema, so it is not fetched again) and configures it. Same config again: no-op. Another config for the same (source, version): `FAILED_PRECONDITION` until `Close`. |
 | `Import` | `provider`, `typeName`, `id` | `resources[]`, `warnings` | `ImportResourceState`, then `ReadResource` on each result (concurrently, results in the provider's order). A missing object: `NOT_FOUND` (or the provider's own error). |
 | `Read` | `provider`, `typeName`, `stateJson`, `private`, `schemaVersion`? | `resource`, `gone`, `warnings` | Refresh from the vendor. With `schemaVersion` (the `Resource.schemaVersion` the state was written with), the provider upgrades the state (`UpgradeResourceState`) first, as OpenTofu does on every refresh; without it, `stateJson` must match the current schema. `gone: true` when the object no longer exists. |
+| `Plan` | `provider`, `typeName`, `priorStateJson` (empty: create), `priorPrivate`, `priorSchemaVersion`?, `configJson` (empty: delete) | `action`, `plannedStateJson`, `unknownPaths`, `requiresReplace`, `planned`, `plannedPrivate`, `warnings` | As OpenTofu plans: `ValidateResourceConfig`, the proposed new state (config laid over prior), `PlanResourceChange`. No refresh: `Read` first. `action` is `NONE`, `CREATE`, `UPDATE`, `REPLACE` (some `requiresReplace` attribute changed; `planned` is then the new object's plan) or `DELETE` (not sent to the provider). Unknown values are `null` in `plannedStateJson` and listed in `unknownPaths`. |
+| `Apply` | the `Plan` request's fields, `planned`, `plannedPrivate` | `resource`, `errors`, `warnings` | `ApplyResourceChange`. Provider errors come back in `errors`, not as a Connect error, beside any state the provider returned, so a create that failed half way keeps its id. A delete is `Apply` with the prior state and no `configJson` or `planned`; a replace is that delete, then `Apply` with no prior state and the plan. |
 | `Close` | `provider` (unset: all) | `{}` | Stops configured providers. |
 
 A `Resource` is `{ typeName, stateJson, private, schemaVersion }`. `private` is opaque provider data (base64 in JSON): pass it back unchanged on the next `Read`, with `schemaVersion` so state stored before a provider upgrade is upgraded.
 
 Calls for one (source, version) that start or configure a provider wait for each other; calls for different providers never do, and a waiting call gives up when its deadline passes.
 
-**Values are JSON text in string fields** (`configJson`, `stateJson`, `schemaJson`), not `google.protobuf.Struct`, so numbers keep full precision and a null attribute stays distinct from an absent one. State follows the resource type's implied type: every attribute is present (`null` when unset), sets are arrays, nested blocks and nested attributes are arrays (list, set), objects (single, group) or records (map), and a dynamic attribute is `{"value": …, "type": …}`. In requests, omitted attributes are null; unknown values cannot be expressed.
+**Values are JSON text in string fields** (`configJson`, `stateJson`, `schemaJson`), not `google.protobuf.Struct`, so numbers keep full precision and a null attribute stays distinct from an absent one. State follows the resource type's implied type: every attribute is present (`null` when unset), sets are arrays, nested blocks and nested attributes are arrays (list, set), objects (single, group) or records (map), and a dynamic attribute is `{"value": …, "type": …}`. In requests, omitted attributes are null; unknown values cannot be expressed. A plan's unknown values ("known after apply") are `null` plus a path in `unknownPaths` (`id`, `rules[0].port`, `tags["env"]`; a set holding one is listed whole); `planned` keeps them as the provider encoded them (msgpack), and is opaque.
 
 **The schema document** (`formatVersion: 1`, keys sorted):
 
@@ -107,7 +109,7 @@ Calls for one (source, version) that start or configure a provider wait for each
 
 A list or set block with `maxItems: 1` is SDKv2's way of saying "one object". The document has no `immutable` flag: "requires replacement" is not in the schema (it is decided during plan).
 
-**Errors.** Error diagnostics from the provider become a Connect error whose details are `Diagnostic { severity, summary, detail, attributePath }` messages, one per diagnostic; warnings come back in the response. Codes: `INVALID_ARGUMENT` (bad JSON, unknown resource type, provider rejected the config), `FAILED_PRECONDITION` (not configured, configured differently, pin mismatch, unverifiable release, registry host not allowed, provider error diagnostic), `UNAVAILABLE` (the provider process failed or exited: configure again), `NOT_FOUND` (import found nothing).
+**Errors.** Error diagnostics from the provider become a Connect error whose details are `Diagnostic { severity, summary, detail, attributePath }` messages, one per diagnostic; warnings come back in the response. `Apply` is the exception: its provider errors are in the response. Codes: `INVALID_ARGUMENT` (bad JSON, unknown resource type, provider rejected the config or a resource's config), `FAILED_PRECONDITION` (not configured, configured differently, pin mismatch, unverifiable release, registry host not allowed, provider error diagnostic), `UNAVAILABLE` (the provider process failed or exited: configure again), `NOT_FOUND` (import found nothing).
 
 ## Supply chain
 
@@ -129,7 +131,7 @@ The bridge starts each provider as a child process and stops it on `Close`, and 
 
 [mise](https://mise.jdx.dev) is the one entry point: `.mise.toml` pins Go, buf and golangci-lint, sets `GOTOOLCHAIN=local` (Go never downloads another toolchain), and defines a task per Makefile target. Run `mise install` once, then `mise run <task>`; `mise tasks` describes every task. `mise run check` runs what CI's verify and test jobs run, in order: `check-fresh` (`go mod verify`, `vendor/` and `gen/` up to date, `guard`), `lint` (golangci-lint, includes govet) and `test`.
 
-`test` downloads hashicorp/null 3.3.2 into `provider-bridge-test` in the user cache directory, builds `testprovider/` (a protocol 6 Plugin Framework provider) once into `bin/` (`PROVIDER_BRIDGE_TESTPROV`) and runs the server end to end; `test-short` is the unit tests only, no network; `guard` fails if `cmd/provider-bridge` links terraform-plugin-go.
+`test` downloads hashicorp/null 3.3.2 and integrations/github 6.13.0 (whose plans need no credentials) into `provider-bridge-test` in the user cache directory, builds `testprovider/` (a protocol 6 Plugin Framework provider) once into `bin/` (`PROVIDER_BRIDGE_TESTPROV`) and runs the server end to end; `test-short` is the unit tests only, no network; `guard` fails if `cmd/provider-bridge` links terraform-plugin-go.
 
 A bare `make <target>` also uses the pinned tools when mise is installed (the Makefile runs each tool through `mise x --`; run `mise trust` once if mise says the config is not trusted, or `make MISE=` to use PATH). Plain `go` commands do not: if `go` in your shell resolves to another install, run `mise activate` in your shell profile (or put mise's shims directory first on PATH), or prefix them with `mise x --`. To rewrite golden files: `mise x -- go test ./internal/schema ./internal/provider -update`.
 
@@ -137,7 +139,7 @@ Layout: `cmd/provider-bridge` (the sidecar), `cmd/bridge-record` (fixture record
 
 ### Recording fixtures
 
-`bridge-record` runs a real provider with real credentials and writes its schema and Import/Read replies into `testdata/`, scrubbed: sensitive attributes and `--scrub TYPE.PATH` become `"<scrubbed>"`, every `--config-env` secret is replaced wherever it appears, and a file in which a secret survives is never written. It never runs in CI.
+`bridge-record` runs a real provider with real credentials and writes its schema and Import/Read and Plan/Apply replies into `testdata/`, scrubbed: sensitive attributes and `--scrub TYPE.PATH` become `"<scrubbed>"`, every `--config-env` secret is replaced wherever it appears, and a file in which a secret survives is never written. It never runs in CI.
 
 ```sh
 GITHUB_TOKEN="$(gh auth token)" go run ./cmd/bridge-record \
@@ -148,9 +150,13 @@ STRIPE_API_KEY=sk_test_… go run ./cmd/bridge-record \
   --provider stripe/stripe --version 0.3.0 \
   --config-env api_key=STRIPE_API_KEY --scrub stripe_webhook_endpoint.secret \
   --import stripe_product=prod_… --import stripe_webhook_endpoint=we_…
+GITHUB_TOKEN=… go run ./cmd/bridge-record \
+  --provider integrations/github --version 6.13.0 \
+  --config '{"owner":"<test org>"}' --config-env token=GITHUB_TOKEN \
+  --change 'github_repository=empty={"name":"bridge-record-empty","visibility":"private"}'
 ```
 
-`mise run record` re-records the committed GitHub fixtures and the Stripe and Supabase schemas.
+`--change TYPE=SLUG=CONFIG` creates an object (repeat it with the same `TYPE=SLUG` to update it, step by step), then deletes it, recording every plan and apply; it deletes what it created even when a step fails. Use a throwaway organization for it. `mise run record` re-records the committed GitHub import fixtures, the Stripe and Supabase schemas and the `null_resource` plan/apply fixtures.
 
 ## License
 

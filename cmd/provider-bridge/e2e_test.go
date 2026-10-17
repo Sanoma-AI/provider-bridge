@@ -123,6 +123,18 @@ func TestE2ENull(t *testing.T) {
 	if got := rres.Msg.GetResource().GetStateJson(); got != `{"id":"7","triggers":{"k":"v"}}` {
 		t.Fatalf("Read state = %s", got)
 	}
+
+	// Plan and apply a create; the opaque plan crosses gRPC unchanged.
+	config := `{"triggers":{"k":"v"}}`
+	pres, err := g.Plan(ctx, connect.NewRequest(&bridgev1.PlanRequest{Provider: ref, TypeName: "null_resource", ConfigJson: config}))
+	if err != nil || pres.Msg.GetAction() != bridgev1.PlanResponse_ACTION_CREATE {
+		t.Fatalf("Plan = %v, %v", pres, err)
+	}
+	ares, err := g.Apply(ctx, connect.NewRequest(&bridgev1.ApplyRequest{Provider: ref, TypeName: "null_resource", ConfigJson: config,
+		Planned: pres.Msg.GetPlanned(), PlannedPrivate: pres.Msg.GetPlannedPrivate()}))
+	if err != nil || len(ares.Msg.GetErrors()) != 0 || !strings.Contains(ares.Msg.GetResource().GetStateJson(), `"id":"`) {
+		t.Fatalf("Apply = %v, %v", ares, err)
+	}
 	stop()
 }
 

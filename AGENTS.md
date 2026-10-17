@@ -1,20 +1,20 @@
 # provider-bridge: notes for coding agents
 
-A Go sidecar that runs OpenTofu providers (plugin protocol 5 and 6) and serves `GetSchema`, `Configure`, `Import`, `Read`, `Close` over ConnectRPC on a unix socket. Read [README.md](README.md) for the API and supply-chain rules; package docs live in each package's `doc.go` or package comment.
+A Go sidecar that runs OpenTofu providers (plugin protocol 5 and 6) and serves `GetSchema`, `Configure`, `Import`, `Read`, `Plan`, `Apply`, `Close` over ConnectRPC on a unix socket. Read [README.md](README.md) for the API and supply-chain rules; package docs live in each package's `doc.go` or package comment.
 
 ## Contents
 
 | Path | What |
 | --- | --- |
 | `cmd/provider-bridge` | the sidecar: `serve` (default), `fetch`, `schema` |
-| `cmd/bridge-record` | records schemas and Import/Read replies into `testdata/` (needs credentials; never in CI) |
+| `cmd/bridge-record` | records schemas and Import/Read and Plan/Apply replies into `testdata/` (needs credentials; never in CI) |
 | `internal/registry` | registry discovery (host policy, https only), download, SHA256SUMS + OpenPGP verification, cache, `CacheDir` |
 | `internal/registry/keys` | trusted signing keys, embedded; `README.md` records each key's provenance |
 | `internal/plugin` | go-plugin client config (handshake, AutoMTLS, env, stderr through go-plugin's parser into slog) |
 | `internal/tfproto` | `Provider` interface; one `client` (`client.go`) over `wire5.go` / `wire6.go`; proto schema → `schema` model; diagnostics |
 | `internal/schema` | schema model, JSON document, `ImpliedType` (memoized), `CoerceConfig`, `MapObjects` |
-| `internal/values` | JSON ↔ cty ↔ msgpack |
-| `internal/provider` | `Manager`: per-release locks, resolved releases and the pin check, schema cache (`schemacache.go`, keyed on the bridge build), one configured instance per (source, version), Import = ImportResourceState + ReadResource, Read = optional UpgradeResourceState + ReadResource; `RegistryLauncher`, `OverrideLauncher` (`--dev-provider`) |
+| `internal/values` | JSON ↔ cty ↔ msgpack; unknowns as `null` + paths; `ProposedNew` (OpenTofu's, rewritten) |
+| `internal/provider` | `Manager`: per-release locks, resolved releases and the pin check, schema cache (`schemacache.go`, keyed on the bridge build), one configured instance per (source, version), Import = ImportResourceState + ReadResource, Read = optional UpgradeResourceState + ReadResource; Plan/Apply (`change.go`) as OpenTofu plans and applies; `RegistryLauncher`, `OverrideLauncher` (`--dev-provider`) |
 | `internal/pins` | reads `testdata/pins.json` |
 | `internal/server` | Connect handlers, error mapping, unix socket listener |
 | `internal/testutil` | golden files, pinned downloads, test provider build, in-process fake provider |

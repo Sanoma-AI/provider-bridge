@@ -50,6 +50,18 @@ func (w *stubWire) readResource(_ context.Context, _ string, state, private, met
 	return dynamicValue{msgpack: state}, private, nil, nil
 }
 
+func (*stubWire) validateResourceConfig(context.Context, string, []byte) (Diagnostics, error) {
+	return nil, nil
+}
+
+func (*stubWire) planResourceChange(_ context.Context, _ string, _, proposed, _, _, _ []byte) (plannedRaw, Diagnostics, error) {
+	return plannedRaw{state: dynamicValue{msgpack: proposed}, requiresReplace: []cty.Path{cty.GetAttrPath("id")}}, nil, nil
+}
+
+func (*stubWire) applyResourceChange(_ context.Context, _ string, _, planned, _, private, _ []byte) (dynamicValue, []byte, Diagnostics, error) {
+	return dynamicValue{msgpack: planned}, private, nil, nil
+}
+
 func stubResponse(withMeta bool) *tfplugin5.GetProviderSchema_Response {
 	r := &tfplugin5.GetProviderSchema_Response{
 		Provider: &tfplugin5.Schema{Block: &tfplugin5.Schema_Block{
@@ -90,7 +102,18 @@ func TestClient(t *testing.T) {
 	if err != nil || up.GetAttr("id").AsString() != "2" {
 		t.Fatalf("UpgradeResourceState = %#v, %v", up, err)
 	}
+	planned, _, err := c.PlanResourceChange(ctx, "x_item", cty.NullVal(state.Type()), state, state, nil)
+	if err != nil || !planned.State.RawEquals(state) || len(planned.Msgpack) == 0 || values.FormatPath(planned.RequiresReplace[0]) != "id" {
+		t.Fatalf("PlanResourceChange = %#v, %v", planned, err)
+	}
+	applied, priv, _, err := c.ApplyResourceChange(ctx, "x_item", cty.NullVal(state.Type()), state, state, []byte("pp"))
+	if err != nil || !applied.RawEquals(state) || string(priv) != "pp" {
+		t.Fatalf("ApplyResourceChange = %#v %q %v", applied, priv, err)
+	}
 	var unknown *UnknownTypeError
+	if _, err := c.ValidateResourceConfig(ctx, "x_nope", state); !errors.As(err, &unknown) {
+		t.Fatalf("validate of unknown type: %v", err)
+	}
 	if _, _, err := c.ImportResourceState(ctx, "x_nope", "1"); !errors.As(err, &unknown) {
 		t.Fatalf("import of unknown type: %v", err)
 	}

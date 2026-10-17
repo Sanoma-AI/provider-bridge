@@ -106,3 +106,56 @@ func (w wire6) readResource(ctx context.Context, typeName string, state, private
 	}
 	return fromDV6(resp.GetNewState()), resp.GetPrivate(), diagnostics6(resp.GetDiagnostics()), nil
 }
+
+func (w wire6) validateResourceConfig(ctx context.Context, typeName string, config []byte) (Diagnostics, error) {
+	resp, err := w.rpc.ValidateResourceConfig(ctx, &tfplugin6.ValidateResourceConfig_Request{
+		TypeName:           typeName,
+		Config:             dv6(config),
+		ClientCapabilities: &tfplugin6.ClientCapabilities{WriteOnlyAttributesAllowed: true},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("ValidateResourceConfig: %w", err)
+	}
+	return diagnostics6(resp.GetDiagnostics()), nil
+}
+
+func (w wire6) planResourceChange(ctx context.Context, typeName string, prior, proposed, config, priorPrivate, meta []byte) (plannedRaw, Diagnostics, error) {
+	req := &tfplugin6.PlanResourceChange_Request{
+		TypeName:           typeName,
+		PriorState:         dv6(prior),
+		ProposedNewState:   dv6(proposed),
+		Config:             dv6(config),
+		PriorPrivate:       priorPrivate,
+		ClientCapabilities: &tfplugin6.ClientCapabilities{WriteOnlyAttributesAllowed: true},
+	}
+	if meta != nil {
+		req.ProviderMeta = dv6(meta)
+	}
+	resp, err := w.rpc.PlanResourceChange(ctx, req)
+	if err != nil {
+		return plannedRaw{}, nil, fmt.Errorf("PlanResourceChange: %w", err)
+	}
+	return plannedRaw{
+		state:           fromDV6(resp.GetPlannedState()),
+		requiresReplace: paths6(resp.GetRequiresReplace()),
+		private:         resp.GetPlannedPrivate(),
+	}, diagnostics6(resp.GetDiagnostics()), nil
+}
+
+func (w wire6) applyResourceChange(ctx context.Context, typeName string, prior, planned, config, plannedPrivate, meta []byte) (dynamicValue, []byte, Diagnostics, error) {
+	req := &tfplugin6.ApplyResourceChange_Request{
+		TypeName:       typeName,
+		PriorState:     dv6(prior),
+		PlannedState:   dv6(planned),
+		Config:         dv6(config),
+		PlannedPrivate: plannedPrivate,
+	}
+	if meta != nil {
+		req.ProviderMeta = dv6(meta)
+	}
+	resp, err := w.rpc.ApplyResourceChange(ctx, req)
+	if err != nil {
+		return dynamicValue{}, nil, nil, fmt.Errorf("ApplyResourceChange: %w", err)
+	}
+	return fromDV6(resp.GetNewState()), resp.GetPrivate(), diagnostics6(resp.GetDiagnostics()), nil
+}

@@ -255,6 +255,32 @@ func diagnostics(in []*tfplugin5.Diagnostic) Diagnostics {
 // attributePath renders a diagnostic's path as OpenTofu does, e.g.
 // rules[0].name or tags["env"].
 func attributePath(p *tfplugin5.AttributePath) string {
+	return values.FormatPath(ctyPath(p))
+}
+
+// paths6 converts protocol 6 attribute paths by re-reading each as its
+// wire-identical protocol 5 twin; an unreadable path is dropped.
+func paths6(in []*tfplugin6.AttributePath) []cty.Path {
+	out := make([]cty.Path, 0, len(in))
+	for _, p := range in {
+		twin := &tfplugin5.AttributePath{}
+		b, err := proto.Marshal(p)
+		if err == nil && proto.Unmarshal(b, twin) == nil {
+			out = append(out, ctyPath(twin))
+		}
+	}
+	return out
+}
+
+func paths5(in []*tfplugin5.AttributePath) []cty.Path {
+	out := make([]cty.Path, 0, len(in))
+	for _, p := range in {
+		out = append(out, ctyPath(p))
+	}
+	return out
+}
+
+func ctyPath(p *tfplugin5.AttributePath) cty.Path {
 	var path cty.Path
 	for _, st := range p.GetSteps() {
 		switch sel := st.GetSelector().(type) {
@@ -266,7 +292,7 @@ func attributePath(p *tfplugin5.AttributePath) string {
 			path = path.Index(cty.NumberIntVal(sel.ElementKeyInt))
 		}
 	}
-	return values.FormatPath(path)
+	return path
 }
 
 // blockNesting maps the NestedBlock nesting enum, numbered alike in 5 and 6.
