@@ -19,6 +19,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/Sanoma-AI/provider-bridge/internal/pins"
 )
 
 func readTestdata(t *testing.T, name string) []byte {
@@ -126,24 +128,33 @@ func TestTrustedKeys(t *testing.T) {
 	// Each key verifies the SHA256SUMS of its provider's pinned release that
 	// registry.opentofu.org points at (copied from the GitHub release), whose
 	// sha256 is the pin in testdata/pins.json.
-	for _, tc := range []struct {
-		namespace, typ, release, keyID, sha256 string
-	}{
-		{"stripe", "stripe", "stripe_0.3.0", "A6C87736961A5EF6", "2e3ae569e1bee7c64ae7f10e6ceaaf5bfab4db7af38979bab28f9b7a35a260c5"},
-		{"supabase", "supabase", "supabase_1.11.0", "18C770C37712658E", "954a01a6847a288c643ad0eaddc3131f48a871384d8d37dc9fe92d57d6aabf94"},
+	all, err := pins.Read(filepath.Join("..", "..", "testdata", "pins.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ namespace, typ, keyID string }{
+		{"stripe", "stripe", "A6C87736961A5EF6"},
+		{"supabase", "supabase", "18C770C37712658E"},
 	} {
-		keys := TrustedKeys().For(Source{Host: DefaultHost, Namespace: tc.namespace, Type: tc.typ})
-		if len(keys) != 1 || keys[0].KeyID != tc.keyID {
-			t.Fatalf("%s/%s trusted keys = %+v", tc.namespace, tc.typ, keys)
-		}
-		sums := readTestdata(t, tc.release+"_SHA256SUMS")
-		if got := sha256.Sum256(sums); hex.EncodeToString(got[:]) != tc.sha256 {
-			t.Fatalf("%s SHA256SUMS sha256 = %x", tc.release, got)
-		}
-		signer, err := VerifySums(sums, readTestdata(t, tc.release+"_SHA256SUMS.sig"), keys)
-		if err != nil || signer.KeyID != tc.keyID {
-			t.Fatalf("%s SHA256SUMS: signer %+v, %v", tc.release, signer, err)
-		}
+		t.Run(tc.namespace+"/"+tc.typ, func(t *testing.T) {
+			keys := TrustedKeys().For(Source{Host: DefaultHost, Namespace: tc.namespace, Type: tc.typ})
+			if len(keys) != 1 || keys[0].KeyID != tc.keyID {
+				t.Fatalf("trusted keys = %+v", keys)
+			}
+			pin, ok := all[tc.namespace+"/"+tc.typ]
+			if !ok {
+				t.Fatal("not pinned in testdata/pins.json")
+			}
+			release := tc.typ + "_" + pin.Version
+			sums := readTestdata(t, release+"_SHA256SUMS")
+			if got := sha256.Sum256(sums); hex.EncodeToString(got[:]) != pin.SHA256 {
+				t.Fatalf("%s SHA256SUMS sha256 = %x, pin %s", release, got, pin.SHA256)
+			}
+			signer, err := VerifySums(sums, readTestdata(t, release+"_SHA256SUMS.sig"), keys)
+			if err != nil || signer.KeyID != tc.keyID {
+				t.Fatalf("%s SHA256SUMS: signer %+v, %v", release, signer, err)
+			}
+		})
 	}
 	// Every embedded key file is listed for a provider.
 	files, err := keyFiles.ReadDir("keys")
