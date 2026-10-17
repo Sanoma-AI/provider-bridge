@@ -6,6 +6,7 @@
 buf = "1.73.0"
 go = "1.26.9"
 golangci-lint = "2.14.0"
+goreleaser = "2.18.3"
 
 [env]
 # Build with the pinned Go only; never download another toolchain.
@@ -55,8 +56,12 @@ run = "make check-fresh"
 description = "Fail if cmd/provider-bridge links terraform-plugin-go"
 run = "make guard"
 
+[tasks.snapshot]
+description = "Build the release archives and SHA256SUMS into dist/ without publishing"
+run = "make snapshot"
+
 [tasks.clean]
-description = "Remove bin/"
+description = "Remove bin/ and dist/"
 run = "make clean"
 
 [tasks.check]

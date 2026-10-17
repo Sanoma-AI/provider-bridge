@@ -9,11 +9,12 @@ GO       ?= $(TOOL) go
 BUF      ?= $(TOOL) buf
 # Not LINT: make 3.81 (macOS) predefines LINT = lint, so ?= would never apply.
 GOLANGCI ?= $(TOOL) golangci-lint
+GORELEASER ?= $(TOOL) goreleaser
 BINDIR   ?= bin
 # The protocol 6 test provider, built once and handed to the tests.
 TESTPROV ?= $(abspath $(BINDIR))/terraform-provider-testprov
 
-.PHONY: all build generate vendor lint testprov test test-short test-integration record check-fresh guard clean
+.PHONY: all build generate vendor lint testprov test test-short test-integration record check-fresh guard snapshot clean
 
 all: build
 
@@ -77,5 +78,9 @@ guard:
 	@if $(GO) list -deps ./cmd/provider-bridge | grep -q terraform-plugin-go; then \
 	  echo "cmd/provider-bridge depends on terraform-plugin-go" >&2; exit 1; fi
 
+# What a v* tag publishes (.goreleaser.yaml), built into dist/ without publishing.
+snapshot:
+	$(GORELEASER) release --snapshot --clean
+
 clean:
-	rm -rf $(BINDIR)
+	rm -rf $(BINDIR) dist

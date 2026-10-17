@@ -1,0 +1,41 @@
+name: Release
+
+# A v* tag on main publishes a GitHub release: provider-bridge for darwin and
+# linux on arm64 and amd64, archived with the license, and SHA256SUMS
+# (.goreleaser.yaml). `mise run snapshot` builds the same locally.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  actions: read # to see the tagged commit's CI run
+  contents: write # to create the release and upload its assets
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    # Actions pinned to commits: this job publishes the binaries Sanoma installs.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # goreleaser reads the tags
+          persist-credentials: false
+      - name: Tagged commit is on main and passed CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "::error::$GITHUB_REF_NAME is not on main"; exit 1; }
+          ci=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$GITHUB_SHA" --branch main --json conclusion -q '.[0].conclusion')
+          [ "$ci" = success ] || { echo "::error::CI on $GITHUB_SHA is '${ci:-not run}', not success"; exit 1; }
+      # Go and goreleaser at the versions .mise.toml pins. No cache: a release
+      # never restores another run's cache.
+      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+        with:
+          cache: false
+      - run: mise x -- goreleaser release --clean
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
