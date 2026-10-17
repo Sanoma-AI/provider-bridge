@@ -11,8 +11,8 @@ Provider releases tests and the recorder may download, each pinned by the sha256
 | Source | Version | Protocol | Use |
 | --- | --- | --- | --- |
 | `hashicorp/null` | 3.3.2 | 5 | integration tests and plan/apply fixtures (no credentials) |
-| `kreuzwerker/docker` | 4.6.0 | 6 as negotiated (the registry lists 5.0; SDKv2 muxed with the Plugin Framework) | recorded schema (Sanoma's local Docker host) |
 | `integrations/github` | 6.13.0 | 5 (SDKv2) | recorded fixtures; plan tests (no credentials) |
+| `kreuzwerker/docker` | 4.6.0 | 6 as negotiated (the registry lists 5.0; SDKv2 muxed with the Plugin Framework) | recorded schema (Sanoma's local Docker host) |
 | `stripe/stripe` | 0.3.0 | 6 (Plugin Framework) | recorded schema |
 | `supabase/supabase` | 1.11.0 | 6 (Plugin Framework) | recorded schema |
 
@@ -23,9 +23,9 @@ Every provider comes from `registry.opentofu.org`, which serves the signing key 
 | File | Recorded with | Notes |
 | --- | --- | --- |
 | `hashicorp_null_3.3.2.json` | no credentials | golden of `TestIntegrationNull`; rewrite with `go test ./internal/provider -update` |
-| `kreuzwerker_docker_4.6.0.json` | no credentials (`--schema-only`) | 12 resource types, 204 KB |
 | `sanoma_testprov_0.0.1.json` | no credentials | golden of the in-tree protocol 6 test provider (`testprovider/`) |
 | `integrations_github_6.13.0.json` | no credentials (`GetSchema` needs no `Configure`) | 88 resource types, 75 data sources, 356 KB |
+| `kreuzwerker_docker_4.6.0.json` | no credentials (`--schema-only`) | 12 resource types, 8 data sources, 204 KB |
 | `stripe_stripe_0.3.0.json` | no credentials | 49 resource types, no data sources, 2.3 MB |
 | `supabase_supabase_1.11.0.json` | no credentials | 7 resource types, 4 data sources, 28 KB |
 
