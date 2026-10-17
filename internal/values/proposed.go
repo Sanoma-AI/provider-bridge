@@ -231,18 +231,10 @@ func collectionMatches(n schema.Nesting, prior, config cty.Value, match func(p, 
 // hasConfigured reports whether v, a value of o's type, holds a non-null
 // value for a non-computed attribute at any depth.
 func hasConfigured(o *schema.Object, v cty.Value) bool {
-	found := false
 	for _, e := range objects(o.Nesting, v) {
 		for name, a := range o.Attributes {
 			c := e.GetAttr(name)
-			switch {
-			case c.IsNull():
-			case !a.Computed:
-				found = true
-			case a.NestedType != nil:
-				found = hasConfigured(a.NestedType, c)
-			}
-			if found {
+			if !c.IsNull() && (!a.Computed || a.NestedType != nil && hasConfigured(a.NestedType, c)) {
 				return true
 			}
 		}

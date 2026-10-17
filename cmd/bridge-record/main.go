@@ -289,7 +289,11 @@ func (r *recorder) importAndRead(ctx context.Context, typeName, id string) error
 	return nil
 }
 
+// scrubState scrubs a state (or config) of typeName; empty stays empty.
 func (r *recorder) scrubState(typeName, stateJSON string) (string, error) {
+	if stateJSON == "" {
+		return "", nil
+	}
 	res, ok := r.schema.Resources[typeName]
 	if !ok {
 		return "", fmt.Errorf("schema has no resource type %s", typeName)

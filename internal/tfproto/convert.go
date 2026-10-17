@@ -225,15 +225,17 @@ func diagnostics6(in []*tfplugin6.Diagnostic) Diagnostics {
 	twins := make([]*tfplugin5.Diagnostic, len(in))
 	for i, d := range in {
 		twins[i] = &tfplugin5.Diagnostic{}
-		b, err := proto.Marshal(d)
-		if err == nil {
-			err = proto.Unmarshal(b, twins[i])
-		}
-		if err != nil {
+		if !reread(d, twins[i]) {
 			twins[i] = &tfplugin5.Diagnostic{Severity: tfplugin5.Diagnostic_ERROR, Summary: d.GetSummary(), Detail: d.GetDetail()}
 		}
 	}
 	return diagnostics(twins)
+}
+
+// reread decodes src's wire form into dst, its protocol 5 twin.
+func reread(src, dst proto.Message) bool {
+	b, err := proto.Marshal(src)
+	return err == nil && proto.Unmarshal(b, dst) == nil
 }
 
 // ---- shared ----
@@ -263,9 +265,7 @@ func attributePath(p *tfplugin5.AttributePath) string {
 func paths6(in []*tfplugin6.AttributePath) []cty.Path {
 	out := make([]cty.Path, 0, len(in))
 	for _, p := range in {
-		twin := &tfplugin5.AttributePath{}
-		b, err := proto.Marshal(p)
-		if err == nil && proto.Unmarshal(b, twin) == nil {
+		if twin := (&tfplugin5.AttributePath{}); reread(p, twin) {
 			out = append(out, ctyPath(twin))
 		}
 	}

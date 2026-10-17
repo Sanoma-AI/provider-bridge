@@ -99,7 +99,7 @@ func (r *recorder) planApply(ctx context.Context, dir, typeName string, prior *b
 		return prior, false, r.write(filepath.Join(dir, "plan.json"), recReq, nil, err)
 	}
 	recRes := proto.Clone(pres.Msg).(*bridgev1.PlanResponse)
-	if recRes.PlannedStateJson, err = r.scrubJSON(typeName, recRes.GetPlannedStateJson()); err != nil {
+	if recRes.PlannedStateJson, err = r.scrubState(typeName, recRes.GetPlannedStateJson()); err != nil {
 		return prior, false, err
 	}
 	if recRes.Planned, err = r.scrubPlanned(typeName, recRes.GetPlanned()); err != nil {
@@ -140,10 +140,10 @@ func (r *recorder) apply(ctx context.Context, path string, req *bridgev1.ApplyRe
 	res, err := r.svc.Apply(ctx, connect.NewRequest(req))
 	recReq := proto.Clone(req).(*bridgev1.ApplyRequest)
 	var serr error
-	if recReq.PriorStateJson, serr = r.scrubJSON(req.GetTypeName(), req.GetPriorStateJson()); serr != nil {
+	if recReq.PriorStateJson, serr = r.scrubState(req.GetTypeName(), req.GetPriorStateJson()); serr != nil {
 		return nil, false, serr
 	}
-	if recReq.ConfigJson, serr = r.scrubJSON(req.GetTypeName(), req.GetConfigJson()); serr != nil {
+	if recReq.ConfigJson, serr = r.scrubState(req.GetTypeName(), req.GetConfigJson()); serr != nil {
 		return nil, false, serr
 	}
 	if recReq.Planned, serr = r.scrubPlanned(req.GetTypeName(), req.GetPlanned()); serr != nil {
@@ -155,7 +155,7 @@ func (r *recorder) apply(ctx context.Context, path string, req *bridgev1.ApplyRe
 	}
 	recRes := proto.Clone(res.Msg).(*bridgev1.ApplyResponse)
 	if recRes.Resource != nil {
-		if recRes.Resource.StateJson, err = r.scrubJSON(req.GetTypeName(), recRes.GetResource().GetStateJson()); err != nil {
+		if recRes.Resource.StateJson, err = r.scrubState(req.GetTypeName(), recRes.GetResource().GetStateJson()); err != nil {
 			return nil, false, err
 		}
 	}
@@ -168,19 +168,11 @@ func (r *recorder) apply(ctx context.Context, path string, req *bridgev1.ApplyRe
 func (r *recorder) scrubPlanRequest(req *bridgev1.PlanRequest) (*bridgev1.PlanRequest, error) {
 	out := proto.Clone(req).(*bridgev1.PlanRequest)
 	var err error
-	if out.PriorStateJson, err = r.scrubJSON(req.GetTypeName(), req.GetPriorStateJson()); err != nil {
+	if out.PriorStateJson, err = r.scrubState(req.GetTypeName(), req.GetPriorStateJson()); err != nil {
 		return nil, err
 	}
-	out.ConfigJson, err = r.scrubJSON(req.GetTypeName(), req.GetConfigJson())
+	out.ConfigJson, err = r.scrubState(req.GetTypeName(), req.GetConfigJson())
 	return out, err
-}
-
-// scrubJSON scrubs a state or config of typeName; empty stays empty.
-func (r *recorder) scrubJSON(typeName, js string) (string, error) {
-	if js == "" {
-		return "", nil
-	}
-	return r.scrubState(typeName, js)
 }
 
 // scrubPlanned scrubs a msgpack plan, which may hold unknown values, and
