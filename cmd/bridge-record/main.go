@@ -35,6 +35,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -113,6 +114,7 @@ func run(args []string) error {
 }
 
 type recorder struct {
+	session  string
 	o        *options
 	svc      *server.Service
 	info     providerInfo
@@ -124,7 +126,7 @@ type recorder struct {
 
 // ref is the provider every request names: the recorded release, pinned.
 func (r *recorder) ref() *bridgev1.ProviderRef {
-	return &bridgev1.ProviderRef{Source: r.info.Source, Version: r.info.Version, Sha256: r.info.SHA256}
+	return &bridgev1.ProviderRef{Source: r.info.Source, Version: r.info.Version, Sha256: r.info.SHA256, SessionId: r.session}
 }
 
 type providerInfo struct {
@@ -164,7 +166,12 @@ func record(ctx context.Context, o *options) error {
 	m := provider.NewManager(launcher, log)
 	defer m.Shutdown()
 
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return err
+	}
 	r := &recorder{
+		session:  fmt.Sprintf("%x-%x-%x-%x-%x", b[:4], b[4:6], b[6:8], b[8:10], b[10:]),
 		o:        o,
 		svc:      server.NewService(m),
 		info:     providerInfo{Source: src.String(), Version: o.version, SHA256: o.pin},
@@ -315,6 +322,25 @@ func (r *recorder) scrubErr(err error) error {
 var marshal = protojson.MarshalOptions{}
 
 func (r *recorder) write(path string, req, res proto.Message, callErr error) error {
+	// Session IDs and plan MACs are process-local, not replay fixtures.
+	clean := func(msg proto.Message) proto.Message {
+		if msg == nil {
+			return nil
+		}
+		copy := proto.Clone(msg)
+		r := copy.ProtoReflect()
+		if f := r.Descriptor().Fields().ByName("plan_token"); f != nil {
+			r.Clear(f)
+		}
+		if f := r.Descriptor().Fields().ByName("provider"); f != nil && r.Has(f) {
+			p := r.Mutable(f).Message()
+			if id := p.Descriptor().Fields().ByName("session_id"); id != nil {
+				p.Clear(id)
+			}
+		}
+		return copy
+	}
+	req, res = clean(req), clean(res)
 	reqJSON, err := marshal.Marshal(req)
 	if err != nil {
 		return err

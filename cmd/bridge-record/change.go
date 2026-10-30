@@ -115,7 +115,7 @@ func (r *recorder) planApply(ctx context.Context, dir, typeName string, prior *b
 		return prior, true, nil
 	case bridgev1.PlanResponse_ACTION_REPLACE:
 		del := &bridgev1.ApplyRequest{Provider: r.ref(), TypeName: typeName,
-			PriorStateJson: areq.GetPriorStateJson(), PriorPrivate: areq.GetPriorPrivate(), PriorSchemaVersion: areq.PriorSchemaVersion}
+			PriorStateJson: areq.GetPriorStateJson(), PriorPrivate: areq.GetPriorPrivate(), PriorSchemaVersion: areq.PriorSchemaVersion, PlanToken: pres.Msg.GetPlanToken()}
 		res, ok, err := r.apply(ctx, filepath.Join(dir, "apply-delete.json"), del)
 		if err != nil || !ok {
 			if res == nil {
@@ -127,6 +127,7 @@ func (r *recorder) planApply(ctx context.Context, dir, typeName string, prior *b
 		prior = nil
 	}
 	areq.Planned, areq.PlannedPrivate = pres.Msg.GetPlanned(), pres.Msg.GetPlannedPrivate()
+	areq.PlanToken = pres.Msg.GetPlanToken()
 	res, ok, err := r.apply(ctx, filepath.Join(dir, "apply.json"), areq)
 	if res == nil && !ok {
 		// Failed without returning state: the object is as before.

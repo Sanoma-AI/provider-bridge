@@ -40,6 +40,7 @@ type Plan struct {
 	// Planned is the planned state as msgpack, for Apply; nil for a delete.
 	Planned []byte
 	Private []byte
+	Token   []byte
 }
 
 // Change is the input of Plan and Apply. Empty PriorState means create;
@@ -53,6 +54,7 @@ type Change struct {
 	// Planned and PlannedPrivate are Plan's result; Apply only.
 	Planned        []byte
 	PlannedPrivate []byte
+	PlanToken      []byte
 }
 
 // Plan plans the change from ch.PriorState to ch.Config as OpenTofu does:
@@ -74,7 +76,7 @@ func (m *Manager) Plan(ctx context.Context, ref Ref, ch Change) (Plan, tfproto.D
 		if prior.IsNull() {
 			return Plan{}, nil, newError(CodeInvalidArgument, "prior_state_json or config_json is required", nil)
 		}
-		return Plan{Action: ActionDelete}, warnings, nil
+		return Plan{Action: ActionDelete, Token: c.planToken(ch)}, warnings, nil
 	}
 	config, err := object(r.Block, "config_json", ch.Config)
 	if err != nil {
@@ -116,6 +118,17 @@ func (m *Manager) Plan(ctx context.Context, ref Ref, ch Change) (Plan, tfproto.D
 		return Plan{}, nil, newError(CodeInternal, fmt.Sprintf("plan %s: encode planned state", ch.TypeName), err)
 	}
 	plan.Planned, plan.Private = planned.Msgpack, planned.Private
+	apply := ch
+	apply.Planned, apply.PlannedPrivate = plan.Planned, plan.Private
+	if plan.Action == ActionReplace {
+		// A replace authorizes exactly the old-object delete and the newly planned create.
+		deletion := ch
+		deletion.Config, deletion.Planned, deletion.PlannedPrivate = nil, nil, nil
+		apply.PriorState, apply.PriorPrivate, apply.PriorSchemaVersion = nil, nil, nil
+		plan.Token = append(c.planToken(deletion), c.planToken(apply)...)
+	} else {
+		plan.Token = c.planToken(apply)
+	}
 	return plan, warnings, nil
 }
 
@@ -173,6 +186,10 @@ func (m *Manager) Apply(ctx context.Context, ref Ref, ch Change) (res *Resource,
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	if !c.validPlanToken(ch) {
+		return nil, nil, nil, newError(CodeFailedPrecondition, "plan does not belong to this session and apply input; plan again", nil)
+	}
+
 	ty := r.Block.ImpliedType()
 	prior, warnings, err := m.prior(ctx, ref, c, r, ch)
 	if err != nil {

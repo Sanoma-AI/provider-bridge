@@ -47,7 +47,7 @@ func NewHandler(m *provider.Manager, log *slog.Logger) http.Handler {
 }
 
 func ref(p *bridgev1.ProviderRef) provider.Ref {
-	return provider.Ref{Source: p.GetSource(), Version: p.GetVersion(), SHA256: p.GetSha256()}
+	return provider.Ref{Source: p.GetSource(), Version: p.GetVersion(), SHA256: p.GetSha256(), SessionID: p.GetSessionId()}
 }
 
 // GetSchema implements BridgeService.
@@ -57,9 +57,10 @@ func (s *Service) GetSchema(ctx context.Context, req *connect.Request[bridgev1.G
 		return nil, toConnect(ctx, err)
 	}
 	return connect.NewResponse(&bridgev1.GetSchemaResponse{
-		SchemaJson: res.JSON,
-		Protocol:   int32(res.Schema.Protocol),
-		Sha256:     res.SHA256,
+		SchemaJson:      res.JSON,
+		Protocol:        int32(res.Schema.Protocol),
+		SessionProtocol: 1,
+		Sha256:          res.SHA256,
 	}), nil
 }
 
@@ -126,6 +127,7 @@ func (s *Service) Plan(ctx context.Context, req *connect.Request[bridgev1.PlanRe
 		RequiresReplace:  plan.RequiresReplace,
 		Planned:          plan.Planned,
 		PlannedPrivate:   plan.Private,
+		PlanToken:        plan.Token,
 		Warnings:         diagnostics(warnings),
 	}), nil
 }
@@ -141,6 +143,7 @@ func (s *Service) Apply(ctx context.Context, req *connect.Request[bridgev1.Apply
 		Config:             []byte(msg.GetConfigJson()),
 		Planned:            msg.GetPlanned(),
 		PlannedPrivate:     msg.GetPlannedPrivate(),
+		PlanToken:          msg.GetPlanToken(),
 	})
 	if err != nil {
 		return nil, toConnect(ctx, err)
@@ -180,6 +183,7 @@ var codes = map[provider.Code]connect.Code{
 	provider.CodeFailedPrecondition: connect.CodeFailedPrecondition,
 	provider.CodeUnavailable:        connect.CodeUnavailable,
 	provider.CodeNotFound:           connect.CodeNotFound,
+	provider.CodeResourceExhausted:  connect.CodeResourceExhausted,
 }
 
 // toConnect maps a Manager error onto a Connect error with diagnostics.
@@ -207,7 +211,7 @@ func logInterceptor(log *slog.Logger) connect.UnaryInterceptorFunc {
 			res, err := next(ctx, req)
 			attrs := []any{"procedure", req.Spec().Procedure, "duration_ms", time.Since(start).Milliseconds()}
 			if err != nil {
-				log.Warn("rpc failed", append(attrs, "code", connect.CodeOf(err).String(), "error", err.Error())...)
+				log.Warn("rpc failed", append(attrs, "code", connect.CodeOf(err).String())...)
 			} else {
 				log.Info("rpc", attrs...)
 			}

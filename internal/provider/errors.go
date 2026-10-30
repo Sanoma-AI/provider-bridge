@@ -25,6 +25,8 @@ const (
 	CodeUnavailable
 	// CodeNotFound: an import found no remote object.
 	CodeNotFound
+	// CodeResourceExhausted: callers must close sessions before starting more.
+	CodeResourceExhausted
 )
 
 // Error is a Manager error with the provider's error diagnostics, if any.

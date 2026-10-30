@@ -59,7 +59,7 @@ type BridgeServiceClient interface {
 	GetSchema(context.Context, *connect.Request[v1.GetSchemaRequest]) (*connect.Response[v1.GetSchemaResponse], error)
 	// Configure starts a long-lived provider instance and configures it.
 	// Idempotent for the same config; a different config for the same
-	// (source, version) fails with FAILED_PRECONDITION until Close.
+	// (source, version, session_id) fails with FAILED_PRECONDITION until Close.
 	Configure(context.Context, *connect.Request[v1.ConfigureRequest]) (*connect.Response[v1.ConfigureResponse], error)
 	// Import runs ImportResourceState and then ReadResource on each result.
 	Import(context.Context, *connect.Request[v1.ImportRequest]) (*connect.Response[v1.ImportResponse], error)
@@ -189,7 +189,7 @@ type BridgeServiceHandler interface {
 	GetSchema(context.Context, *connect.Request[v1.GetSchemaRequest]) (*connect.Response[v1.GetSchemaResponse], error)
 	// Configure starts a long-lived provider instance and configures it.
 	// Idempotent for the same config; a different config for the same
-	// (source, version) fails with FAILED_PRECONDITION until Close.
+	// (source, version, session_id) fails with FAILED_PRECONDITION until Close.
 	Configure(context.Context, *connect.Request[v1.ConfigureRequest]) (*connect.Response[v1.ConfigureResponse], error)
 	// Import runs ImportResourceState and then ReadResource on each result.
 	Import(context.Context, *connect.Request[v1.ImportRequest]) (*connect.Response[v1.ImportResponse], error)

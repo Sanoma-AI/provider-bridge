@@ -148,7 +148,10 @@ type ProviderRef struct {
 	Version string `protobuf:"bytes,2,opt,name=version,proto3" json:"version,omitempty"`
 	// Hex sha256 of the release's SHA256SUMS document. When set, the bridge
 	// refuses a release whose SHA256SUMS differs. Always echoed in responses.
-	Sha256        string `protobuf:"bytes,3,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	Sha256 string `protobuf:"bytes,3,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	// Random UUID for one authorized operation; never credentials or a config hash.
+	// Required for configured calls; omitted for GetSchema.
+	SessionId     string `protobuf:"bytes,4,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -204,6 +207,13 @@ func (x *ProviderRef) GetSha256() string {
 	return ""
 }
 
+func (x *ProviderRef) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
 type GetSchemaRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Provider      *ProviderRef           `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
@@ -255,9 +265,11 @@ type GetSchemaResponse struct {
 	// Negotiated plugin protocol major version: 5 or 6.
 	Protocol int32 `protobuf:"varint,2,opt,name=protocol,proto3" json:"protocol,omitempty"`
 	// Hex sha256 of the release's SHA256SUMS document.
-	Sha256        string `protobuf:"bytes,3,opt,name=sha256,proto3" json:"sha256,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Sha256 string `protobuf:"bytes,3,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	// 1 means isolated sessions and authenticated plan tokens are required.
+	SessionProtocol uint32 `protobuf:"varint,4,opt,name=session_protocol,json=sessionProtocol,proto3" json:"session_protocol,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *GetSchemaResponse) Reset() {
@@ -309,6 +321,13 @@ func (x *GetSchemaResponse) GetSha256() string {
 		return x.Sha256
 	}
 	return ""
+}
+
+func (x *GetSchemaResponse) GetSessionProtocol() uint32 {
+	if x != nil {
+		return x.SessionProtocol
+	}
+	return 0
 }
 
 type ConfigureRequest struct {
@@ -859,8 +878,10 @@ type PlanResponse struct {
 	// Provider-private planned data. Opaque: pass it to Apply unchanged.
 	PlannedPrivate []byte        `protobuf:"bytes,6,opt,name=planned_private,json=plannedPrivate,proto3" json:"planned_private,omitempty"`
 	Warnings       []*Diagnostic `protobuf:"bytes,7,rep,name=warnings,proto3" json:"warnings,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Opaque authentication of this session and the exact Apply input.
+	PlanToken     []byte `protobuf:"bytes,8,opt,name=plan_token,json=planToken,proto3" json:"plan_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *PlanResponse) Reset() {
@@ -942,6 +963,13 @@ func (x *PlanResponse) GetWarnings() []*Diagnostic {
 	return nil
 }
 
+func (x *PlanResponse) GetPlanToken() []byte {
+	if x != nil {
+		return x.PlanToken
+	}
+	return nil
+}
+
 type ApplyRequest struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Provider *ProviderRef           `protobuf:"bytes,1,opt,name=provider,proto3" json:"provider,omitempty"`
@@ -959,6 +987,7 @@ type ApplyRequest struct {
 	Planned []byte `protobuf:"bytes,7,opt,name=planned,proto3" json:"planned,omitempty"`
 	// PlanResponse.planned_private.
 	PlannedPrivate []byte `protobuf:"bytes,8,opt,name=planned_private,json=plannedPrivate,proto3" json:"planned_private,omitempty"`
+	PlanToken      []byte `protobuf:"bytes,9,opt,name=plan_token,json=planToken,proto3" json:"plan_token,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -1045,6 +1074,13 @@ func (x *ApplyRequest) GetPlanned() []byte {
 func (x *ApplyRequest) GetPlannedPrivate() []byte {
 	if x != nil {
 		return x.PlannedPrivate
+	}
+	return nil
+}
+
+func (x *ApplyRequest) GetPlanToken() []byte {
+	if x != nil {
+		return x.PlanToken
 	}
 	return nil
 }
@@ -1272,18 +1308,21 @@ var File_bridge_v1_bridge_proto protoreflect.FileDescriptor
 
 const file_bridge_v1_bridge_proto_rawDesc = "" +
 	"\n" +
-	"\x16bridge/v1/bridge.proto\x12\x18sanoma.providerbridge.v1\"W\n" +
+	"\x16bridge/v1/bridge.proto\x12\x18sanoma.providerbridge.v1\"v\n" +
 	"\vProviderRef\x12\x16\n" +
 	"\x06source\x18\x01 \x01(\tR\x06source\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12\x16\n" +
-	"\x06sha256\x18\x03 \x01(\tR\x06sha256\"U\n" +
+	"\x06sha256\x18\x03 \x01(\tR\x06sha256\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x04 \x01(\tR\tsessionId\"U\n" +
 	"\x10GetSchemaRequest\x12A\n" +
-	"\bprovider\x18\x01 \x01(\v2%.sanoma.providerbridge.v1.ProviderRefR\bprovider\"h\n" +
+	"\bprovider\x18\x01 \x01(\v2%.sanoma.providerbridge.v1.ProviderRefR\bprovider\"\x93\x01\n" +
 	"\x11GetSchemaResponse\x12\x1f\n" +
 	"\vschema_json\x18\x01 \x01(\tR\n" +
 	"schemaJson\x12\x1a\n" +
 	"\bprotocol\x18\x02 \x01(\x05R\bprotocol\x12\x16\n" +
-	"\x06sha256\x18\x03 \x01(\tR\x06sha256\"v\n" +
+	"\x06sha256\x18\x03 \x01(\tR\x06sha256\x12)\n" +
+	"\x10session_protocol\x18\x04 \x01(\rR\x0fsessionProtocol\"v\n" +
 	"\x10ConfigureRequest\x12A\n" +
 	"\bprovider\x18\x01 \x01(\v2%.sanoma.providerbridge.v1.ProviderRefR\bprovider\x12\x1f\n" +
 	"\vconfig_json\x18\x02 \x01(\tR\n" +
@@ -1324,7 +1363,7 @@ const file_bridge_v1_bridge_proto_rawDesc = "" +
 	"\x14prior_schema_version\x18\x05 \x01(\x03H\x00R\x12priorSchemaVersion\x88\x01\x01\x12\x1f\n" +
 	"\vconfig_json\x18\x06 \x01(\tR\n" +
 	"configJsonB\x17\n" +
-	"\x15_prior_schema_version\"\xd8\x03\n" +
+	"\x15_prior_schema_version\"\xf7\x03\n" +
 	"\fPlanResponse\x12E\n" +
 	"\x06action\x18\x01 \x01(\x0e2-.sanoma.providerbridge.v1.PlanResponse.ActionR\x06action\x12,\n" +
 	"\x12planned_state_json\x18\x02 \x01(\tR\x10plannedStateJson\x12#\n" +
@@ -1332,14 +1371,16 @@ const file_bridge_v1_bridge_proto_rawDesc = "" +
 	"\x10requires_replace\x18\x04 \x03(\tR\x0frequiresReplace\x12\x18\n" +
 	"\aplanned\x18\x05 \x01(\fR\aplanned\x12'\n" +
 	"\x0fplanned_private\x18\x06 \x01(\fR\x0eplannedPrivate\x12@\n" +
-	"\bwarnings\x18\a \x03(\v2$.sanoma.providerbridge.v1.DiagnosticR\bwarnings\"~\n" +
+	"\bwarnings\x18\a \x03(\v2$.sanoma.providerbridge.v1.DiagnosticR\bwarnings\x12\x1d\n" +
+	"\n" +
+	"plan_token\x18\b \x01(\fR\tplanToken\"~\n" +
 	"\x06Action\x12\x16\n" +
 	"\x12ACTION_UNSPECIFIED\x10\x00\x12\x0f\n" +
 	"\vACTION_NONE\x10\x01\x12\x11\n" +
 	"\rACTION_CREATE\x10\x02\x12\x11\n" +
 	"\rACTION_UPDATE\x10\x03\x12\x12\n" +
 	"\x0eACTION_REPLACE\x10\x04\x12\x11\n" +
-	"\rACTION_DELETE\x10\x05\"\xf1\x02\n" +
+	"\rACTION_DELETE\x10\x05\"\x90\x03\n" +
 	"\fApplyRequest\x12A\n" +
 	"\bprovider\x18\x01 \x01(\v2%.sanoma.providerbridge.v1.ProviderRefR\bprovider\x12\x1b\n" +
 	"\ttype_name\x18\x02 \x01(\tR\btypeName\x12(\n" +
@@ -1349,7 +1390,9 @@ const file_bridge_v1_bridge_proto_rawDesc = "" +
 	"\vconfig_json\x18\x06 \x01(\tR\n" +
 	"configJson\x12\x18\n" +
 	"\aplanned\x18\a \x01(\fR\aplanned\x12'\n" +
-	"\x0fplanned_private\x18\b \x01(\fR\x0eplannedPrivateB\x17\n" +
+	"\x0fplanned_private\x18\b \x01(\fR\x0eplannedPrivate\x12\x1d\n" +
+	"\n" +
+	"plan_token\x18\t \x01(\fR\tplanTokenB\x17\n" +
 	"\x15_prior_schema_version\"\xcf\x01\n" +
 	"\rApplyResponse\x12>\n" +
 	"\bresource\x18\x01 \x01(\v2\".sanoma.providerbridge.v1.ResourceR\bresource\x12<\n" +

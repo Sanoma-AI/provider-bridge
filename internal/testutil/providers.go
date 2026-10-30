@@ -50,7 +50,7 @@ func Ref(t testing.TB, source string) provider.Ref {
 	if !ok {
 		t.Fatalf("testdata/pins.json has no %s", source)
 	}
-	return provider.Ref{Source: source, Version: p.Version, SHA256: p.SHA256}
+	return provider.Ref{SessionID: "00000000-0000-0000-0000-000000000001", Source: source, Version: p.Version, SHA256: p.SHA256}
 }
 
 // CacheDir is the provider cache shared by test runs and bridge-record:

@@ -18,7 +18,7 @@ import (
 	"github.com/Sanoma-AI/provider-bridge/internal/testutil"
 )
 
-var fakeRef = provider.Ref{Source: "example/fake", Version: "1.0.0"}
+var fakeRef = provider.Ref{SessionID: "00000000-0000-0000-0000-000000000001", Source: "example/fake", Version: "1.0.0"}
 
 func newFakeManager(t *testing.T) (*provider.Manager, *testutil.FakeLauncher) {
 	t.Helper()
@@ -55,7 +55,7 @@ func TestSchemaIsCached(t *testing.T) {
 		t.Fatal("schema instance left running")
 	}
 	// The long form of the source shares the cache entry.
-	if _, err := m.Schema(ctx, provider.Ref{Source: "registry.opentofu.org/example/fake", Version: "1.0.0"}); err != nil || l.Starts.Load() != 1 {
+	if _, err := m.Schema(ctx, provider.Ref{SessionID: "00000000-0000-0000-0000-000000000001", Source: "registry.opentofu.org/example/fake", Version: "1.0.0"}); err != nil || l.Starts.Load() != 1 {
 		t.Fatalf("long source form: err=%v starts=%d", err, l.Starts.Load())
 	}
 	// Configure seeds its instance with the known schema.
@@ -246,7 +246,7 @@ func TestConfigureLifecycle(t *testing.T) {
 		t.Fatalf("configure after exit: err=%v starts=%d", err, l.Starts.Load())
 	}
 
-	m.Close(provider.Ref{Source: "registry.opentofu.org/example/fake", Version: "1.0.0"})
+	m.Close(provider.Ref{SessionID: "00000000-0000-0000-0000-000000000001", Source: "registry.opentofu.org/example/fake", Version: "1.0.0"})
 	if !l.Last().Killed() {
 		t.Fatal("Close did not kill the instance")
 	}
@@ -315,7 +315,7 @@ func TestSlowConfigureBlocksOnlyItsProvider(t *testing.T) {
 	}
 	slow := l.Last()
 
-	other := provider.Ref{Source: "example/other", Version: "1.0.0"}
+	other := provider.Ref{SessionID: "00000000-0000-0000-0000-000000000001", Source: "example/other", Version: "1.0.0"}
 	tctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	if _, err := m.Schema(tctx, other); err != nil {

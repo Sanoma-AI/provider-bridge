@@ -3,7 +3,7 @@
 
 // Package provider manages provider instances for the bridge: it resolves a
 // (source, version) to a verified binary, caches schemas, keeps one
-// configured instance per (source, version), implements Import as
+// configured instance per (source, version, session), implements Import as
 // ImportResourceState followed by ReadResource, and Plan and Apply as
 // OpenTofu does (change.go).
 //
@@ -13,10 +13,12 @@ package provider
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -30,9 +32,10 @@ import (
 
 // Ref names a provider release; SHA256, when set, pins its SHA256SUMS.
 type Ref struct {
-	Source  string
-	Version string
-	SHA256  string
+	Source    string
+	Version   string
+	SHA256    string
+	SessionID string
 }
 
 func (r Ref) String() string { return r.Source + " " + r.Version }
@@ -95,7 +98,9 @@ type Manager struct {
 	locks      map[string]chan struct{} // by source@version
 	releases   map[string]Release       // by source@version, resolved once
 	schemas    map[string]*SchemaResult // by source@version
-	configured map[string]*configured   // by source@version
+	configured map[string]*configured   // by source@version/session
+	pending    int                      // starts reserved against the process bound
+	starting   map[string]bool
 	closed     bool
 }
 
@@ -104,6 +109,7 @@ type configured struct {
 	inst       Instance
 	schema     *schema.ProviderSchema
 	configHash string
+	planKey    [32]byte
 }
 
 // NewManager returns a Manager that starts providers through launcher.
@@ -118,11 +124,24 @@ func NewManager(launcher Launcher, log *slog.Logger) *Manager {
 		releases:   map[string]Release{},
 		schemas:    map[string]*SchemaResult{},
 		configured: map[string]*configured{},
+		starting:   map[string]bool{},
 	}
 }
 
 // refKey is the map key of a normalized ref.
 func refKey(ref Ref) string { return ref.Source + "@" + ref.Version }
+
+const maxSessions = 64
+
+var sessionID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+func sessionKey(ref Ref) string { return refKey(ref) + "/" + ref.SessionID }
+func checkSession(ref Ref) error {
+	if !sessionID.MatchString(ref.SessionID) {
+		return newError(CodeInvalidArgument, "a random session_id UUID is required; upgrade the bridge client", nil)
+	}
+	return nil
+}
 
 // lock takes ref's key lock, or gives up when ctx is done.
 func (m *Manager) lock(ctx context.Context, ref Ref) (unlock func(), err error) {
@@ -240,18 +259,21 @@ func (m *Manager) start(ctx context.Context, rel Release) (Instance, error) {
 func ConfigHash(configJSON string) string { return registry.SHA256Hex([]byte(configJSON)) }
 
 // Configure starts and configures the provider. It is idempotent for the
-// same config; another config for the same (source, version) fails until
+// same config; another config for the same (source, version, session) fails until
 // Close.
 func (m *Manager) Configure(ctx context.Context, ref Ref, configJSON string) (tfproto.Diagnostics, string, error) {
 	ref, err := normalize(ref)
 	if err != nil {
 		return nil, "", err
 	}
+	if err := checkSession(ref); err != nil {
+		return nil, "", err
+	}
 	if configJSON == "" {
 		configJSON = "{}"
 	}
 	hash := ConfigHash(configJSON)
-	log := m.log.With("provider", ref.Source, "version", ref.Version, "config_sha256", hash)
+	log := m.log.With("provider", ref.Source, "version", ref.Version)
 
 	unlock, err := m.lock(ctx, ref)
 	if err != nil {
@@ -269,13 +291,13 @@ func (m *Manager) Configure(ctx context.Context, ref Ref, configJSON string) (tf
 		return nil, "", err
 	}
 	m.mu.Lock()
-	cur := m.configured[refKey(ref)]
+	cur := m.configured[sessionKey(ref)]
 	m.mu.Unlock()
 	if cur != nil {
 		switch {
 		case cur.inst.Exited():
 			log.Warn("configured provider had exited; starting it again")
-			m.remove(refKey(ref), cur)
+			m.remove(sessionKey(ref), cur)
 		case cur.configHash != hash:
 			return nil, "", newError(CodeFailedPrecondition, fmt.Sprintf("%s is already configured with a different config; Close it first", ref), nil)
 		default:
@@ -283,6 +305,15 @@ func (m *Manager) Configure(ctx context.Context, ref Ref, configJSON string) (tf
 		}
 	}
 
+	m.mu.Lock()
+	if len(m.configured)+m.pending >= maxSessions {
+		m.mu.Unlock()
+		return nil, "", newError(CodeResourceExhausted, "provider session limit reached; close completed sessions", nil)
+	}
+	m.pending++
+	m.starting[sessionKey(ref)] = true
+	m.mu.Unlock()
+	defer func() { m.mu.Lock(); m.pending--; delete(m.starting, sessionKey(ref)); m.mu.Unlock() }()
 	inst, err := m.start(ctx, rel)
 	if err != nil {
 		return nil, "", err
@@ -300,13 +331,17 @@ func (m *Manager) Configure(ctx context.Context, ref Ref, configJSON string) (tf
 		return nil, "", err
 	}
 	c.configHash = hash
+	if _, err := rand.Read(c.planKey[:]); err != nil {
+		inst.Kill()
+		return nil, "", newError(CodeInternal, "session initialization failed", nil)
+	}
 	m.mu.Lock()
-	if m.closed {
+	if m.closed || !m.starting[sessionKey(ref)] {
 		m.mu.Unlock()
 		inst.Kill()
 		return nil, "", newError(CodeUnavailable, "bridge is shutting down", nil)
 	}
-	m.configured[refKey(ref)] = c
+	m.configured[sessionKey(ref)] = c
 	m.mu.Unlock()
 	if known == nil {
 		if _, err := m.storeSchema(rel, c.schema); err != nil {
@@ -361,8 +396,11 @@ func (m *Manager) instance(ctx context.Context, ref Ref) (Ref, *configured, erro
 	if err != nil {
 		return ref, nil, err
 	}
+	if err := checkSession(ref); err != nil {
+		return ref, nil, err
+	}
 	m.mu.Lock()
-	c := m.configured[refKey(ref)]
+	c := m.configured[sessionKey(ref)]
 	m.mu.Unlock()
 	if c == nil {
 		return ref, nil, newError(CodeFailedPrecondition, fmt.Sprintf("%s is not configured; call Configure first", ref), nil)
@@ -372,7 +410,7 @@ func (m *Manager) instance(ctx context.Context, ref Ref) (Ref, *configured, erro
 		return ref, nil, err
 	}
 	if c.inst.Exited() {
-		m.remove(refKey(ref), c)
+		m.remove(sessionKey(ref), c)
 		return ref, nil, newError(CodeUnavailable, fmt.Sprintf("%s: provider exited; configure again", ref), nil)
 	}
 	return ref, c, nil
@@ -394,7 +432,7 @@ func (m *Manager) callErr(ref Ref, c *configured, what string, err error) error 
 		return newError(CodeInvalidArgument, "", err)
 	}
 	if c.inst.Exited() {
-		m.remove(refKey(ref), c)
+		m.remove(sessionKey(ref), c)
 		return newError(CodeUnavailable, fmt.Sprintf("%s: provider exited; configure again", ref), err)
 	}
 	return newError(CodeUnavailable, fmt.Sprintf("%s: %s", ref, what), err)
@@ -550,9 +588,14 @@ func (m *Manager) Close(ref Ref) {
 		}
 	}
 	m.mu.Lock()
+	for key := range m.starting {
+		if all || key == sessionKey(ref) {
+			m.starting[key] = false
+		}
+	}
 	var victims []*configured
 	for key, c := range m.configured {
-		if all || key == refKey(ref) {
+		if all || key == sessionKey(ref) {
 			victims = append(victims, c)
 			delete(m.configured, key)
 		}

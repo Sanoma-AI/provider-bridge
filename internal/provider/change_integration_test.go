@@ -40,7 +40,10 @@ func (r changeRun) apply(prior *provider.Resource, config string, plan provider.
 }
 
 func (r changeRun) change(prior *provider.Resource, config string, plan provider.Plan) provider.Change {
-	ch := provider.Change{TypeName: r.kind, Config: []byte(config), Planned: plan.Planned, PlannedPrivate: plan.Private}
+	ch := provider.Change{TypeName: r.kind, Config: []byte(config), Planned: plan.Planned, PlannedPrivate: plan.Private, PlanToken: plan.Token}
+	if config == "" {
+		ch.Planned, ch.PlannedPrivate = nil, nil
+	}
 	if prior != nil {
 		ch.PriorState, ch.PriorPrivate, ch.PriorSchemaVersion = prior.State, prior.Private, &prior.SchemaVersion
 	}
@@ -99,7 +102,7 @@ func TestIntegrationNullPlanApply(t *testing.T) {
 	v2 := `{"triggers":{"v":"2"}}`
 	plan = r.plan(created, v2)
 	wantPlan(t, plan, provider.ActionReplace, []string{"id"}, []string{"triggers"})
-	if gone := r.apply(created, "", provider.Plan{}); gone != nil {
+	if gone := r.apply(created, "", plan); gone != nil {
 		t.Fatalf("delete returned %s", gone.State)
 	}
 	replaced := r.apply(nil, v2, plan)
@@ -108,7 +111,7 @@ func TestIntegrationNullPlanApply(t *testing.T) {
 	}
 
 	wantPlan(t, r.plan(replaced, ""), provider.ActionDelete, nil, nil)
-	if gone := r.apply(replaced, "", provider.Plan{}); gone != nil {
+	if gone := r.apply(replaced, "", r.plan(replaced, "")); gone != nil {
 		t.Fatalf("delete returned %s", gone.State)
 	}
 }
@@ -121,7 +124,7 @@ func TestIntegrationTestProviderPlanApply(t *testing.T) {
 	log := testutil.Logger(t)
 	m := provider.NewManager(testutil.Launcher(t, log, true), log)
 	t.Cleanup(m.Shutdown)
-	ref := provider.Ref{Source: testutil.TestProviderSource, Version: testutil.TestProviderVersion}
+	ref := provider.Ref{SessionID: "00000000-0000-0000-0000-000000000001", Source: testutil.TestProviderSource, Version: testutil.TestProviderVersion}
 	if _, _, err := m.Configure(ctxTimeout(t), ref, `{"api_key":"k"}`); err != nil {
 		t.Fatal(err)
 	}

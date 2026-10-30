@@ -34,7 +34,7 @@ func newClient(t *testing.T) (providerbridgev1connect.BridgeServiceClient, *test
 	return providerbridgev1connect.NewBridgeServiceClient(srv.Client(), srv.URL, connect.WithProtoJSON()), l
 }
 
-var ref = &bridgev1.ProviderRef{Source: "example/fake", Version: "1.0.0"}
+var ref = &bridgev1.ProviderRef{SessionId: "00000000-0000-0000-0000-000000000001", Source: "example/fake", Version: "1.0.0"}
 
 func TestHandlers(t *testing.T) {
 	c, l := newClient(t)
@@ -96,8 +96,8 @@ func TestHandlers(t *testing.T) {
 			return err
 		},
 	} {
-		if connect.CodeOf(call()) != connect.CodeInvalidArgument {
-			t.Errorf("%s: want invalid_argument", name)
+		if code := connect.CodeOf(call()); code != connect.CodeInvalidArgument {
+			t.Errorf("%s: want invalid_argument, got %s", name, code)
 		}
 	}
 
@@ -132,9 +132,9 @@ func TestPlanApply(t *testing.T) {
 	}
 	apply := func(prior *bridgev1.Resource, config string, p *bridgev1.PlanResponse) *bridgev1.ApplyResponse {
 		t.Helper()
-		req := &bridgev1.ApplyRequest{Provider: ref, TypeName: "fake_thing", ConfigJson: config, Planned: p.GetPlanned(), PlannedPrivate: p.GetPlannedPrivate()}
+		req := &bridgev1.ApplyRequest{Provider: ref, TypeName: "fake_thing", ConfigJson: config, Planned: p.GetPlanned(), PlannedPrivate: p.GetPlannedPrivate(), PlanToken: p.GetPlanToken()}
 		if prior != nil {
-			req.PriorStateJson, req.PriorPrivate = prior.GetStateJson(), prior.GetPrivate()
+			req.PriorStateJson, req.PriorPrivate, req.PriorSchemaVersion = prior.GetStateJson(), prior.GetPrivate(), &prior.SchemaVersion
 		}
 		res, err := c.Apply(ctx, connect.NewRequest(req))
 		if err != nil {
@@ -207,8 +207,12 @@ func TestPlanApply(t *testing.T) {
 			return err
 		},
 	} {
-		if connect.CodeOf(call()) != connect.CodeInvalidArgument {
-			t.Errorf("%s: want invalid_argument", name)
+		want := connect.CodeInvalidArgument
+		if name == "config without planned" || name == "planned without config" || name == "planned not msgpack" || name == "nothing to apply" {
+			want = connect.CodeFailedPrecondition // Missing session-bound plan proof is refused first.
+		}
+		if got := connect.CodeOf(call()); got != want {
+			t.Errorf("%s: want %s, got %s", name, want, got)
 		}
 	}
 }

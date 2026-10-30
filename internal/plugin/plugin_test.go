@@ -16,8 +16,8 @@ import (
 func TestSlogSink(t *testing.T) {
 	var buf bytes.Buffer
 	sink := slogSink{log: slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug - 4}))}
-	sink.Accept("terraform-provider-x", hclog.Warn, "Response contains warning", "@module", "sdk.proto", "timestamp", "2026-10-09T00:00:00Z")
-	sink.Accept("terraform-provider-x", hclog.Error, "panic: boom")
+	sink.Accept("terraform-provider-x", hclog.Warn, "secret-in-message", "api_key", "secret-in-attribute", "timestamp", "2026-10-09T00:00:00Z")
+	sink.Accept("terraform-provider-x", hclog.Error, "secret-in-stderr")
 	sink.Accept("", hclog.Info, "plugin process exited", "id", 42)
 	sink.Accept("", hclog.Error, "plugin failed to exit gracefully")
 
@@ -31,10 +31,10 @@ func TestSlogSink(t *testing.T) {
 		got = append(got, e)
 	}
 	want := []map[string]any{
-		{"level": "WARN", "msg": "Response contains warning", "@module": "sdk.proto"},
-		{"level": "ERROR", "msg": "provider stderr", "line": "panic: boom"},
-		{"level": "DEBUG", "msg": "plugin process exited", "source": "go-plugin", "id": float64(42)},
-		{"level": "ERROR", "msg": "plugin failed to exit gracefully", "source": "go-plugin"},
+		{"level": "WARN", "msg": "provider log suppressed", "source": "provider"},
+		{"level": "ERROR", "msg": "provider log suppressed", "source": "provider"},
+		{"level": "DEBUG", "msg": "provider log suppressed", "source": "go-plugin"},
+		{"level": "ERROR", "msg": "provider log suppressed", "source": "go-plugin"},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("got %d lines: %s", len(got), buf.String())
