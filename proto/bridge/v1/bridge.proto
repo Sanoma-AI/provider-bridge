@@ -23,7 +23,7 @@ service BridgeService {
   rpc GetSchema(GetSchemaRequest) returns (GetSchemaResponse);
   // Configure starts a long-lived provider instance and configures it.
   // Idempotent for the same config; a different config for the same
-  // (source, version) fails with FAILED_PRECONDITION until Close.
+  // (source, version, session_id) fails with FAILED_PRECONDITION until Close.
   rpc Configure(ConfigureRequest) returns (ConfigureResponse);
   // Import runs ImportResourceState and then ReadResource on each result.
   rpc Import(ImportRequest) returns (ImportResponse);
@@ -55,6 +55,9 @@ message ProviderRef {
   // Hex sha256 of the release's SHA256SUMS document. When set, the bridge
   // refuses a release whose SHA256SUMS differs. Always echoed in responses.
   string sha256 = 3;
+  // Random UUID for one authorized operation; never credentials or a config hash.
+  // Required for configured calls; omitted for GetSchema.
+  string session_id = 4;
 }
 
 message GetSchemaRequest {
@@ -68,6 +71,8 @@ message GetSchemaResponse {
   int32 protocol = 2;
   // Hex sha256 of the release's SHA256SUMS document.
   string sha256 = 3;
+  // 1 means isolated sessions and authenticated plan tokens are required.
+  uint32 session_protocol = 4;
 }
 
 message ConfigureRequest {
@@ -178,6 +183,8 @@ message PlanResponse {
   // Provider-private planned data. Opaque: pass it to Apply unchanged.
   bytes planned_private = 6;
   repeated Diagnostic warnings = 7;
+  // Opaque authentication of this session and the exact Apply input.
+  bytes plan_token = 8;
 }
 
 message ApplyRequest {
@@ -196,6 +203,7 @@ message ApplyRequest {
   bytes planned = 7;
   // PlanResponse.planned_private.
   bytes planned_private = 8;
+  bytes plan_token = 9;
 }
 
 message ApplyResponse {

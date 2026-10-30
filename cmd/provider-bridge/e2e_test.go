@@ -97,7 +97,7 @@ func TestE2ENull(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	pin := testutil.Ref(t, "hashicorp/null")
-	ref := &bridgev1.ProviderRef{Source: pin.Source, Version: pin.Version, Sha256: pin.SHA256}
+	ref := &bridgev1.ProviderRef{SessionId: "00000000-0000-0000-0000-000000000001", Source: pin.Source, Version: pin.Version, Sha256: pin.SHA256}
 
 	sres, err := c.GetSchema(ctx, connect.NewRequest(&bridgev1.GetSchemaRequest{Provider: ref}))
 	if err != nil {
@@ -108,7 +108,7 @@ func TestE2ENull(t *testing.T) {
 	}
 
 	// A wrong pin is refused.
-	bad := &bridgev1.ProviderRef{Source: pin.Source, Version: pin.Version, Sha256: strings.Repeat("0", 64)}
+	bad := &bridgev1.ProviderRef{SessionId: "00000000-0000-0000-0000-000000000001", Source: pin.Source, Version: pin.Version, Sha256: strings.Repeat("0", 64)}
 	if _, err := c.GetSchema(ctx, connect.NewRequest(&bridgev1.GetSchemaRequest{Provider: bad})); connect.CodeOf(err) != connect.CodeFailedPrecondition {
 		t.Fatalf("wrong pin: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestE2ENull(t *testing.T) {
 		t.Fatalf("Plan = %v, %v", pres, err)
 	}
 	ares, err := g.Apply(ctx, connect.NewRequest(&bridgev1.ApplyRequest{Provider: ref, TypeName: "null_resource", ConfigJson: config,
-		Planned: pres.Msg.GetPlanned(), PlannedPrivate: pres.Msg.GetPlannedPrivate()}))
+		Planned: pres.Msg.GetPlanned(), PlannedPrivate: pres.Msg.GetPlannedPrivate(), PlanToken: pres.Msg.GetPlanToken()}))
 	if err != nil || len(ares.Msg.GetErrors()) != 0 || !strings.Contains(ares.Msg.GetResource().GetStateJson(), `"id":"`) {
 		t.Fatalf("Apply = %v, %v", ares, err)
 	}
@@ -143,7 +143,7 @@ func TestE2ETestProvider(t *testing.T) {
 	c, g, _ := startBridge(t, "--dev-provider", testutil.TestProviderSource+"="+bin)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	ref := &bridgev1.ProviderRef{Source: testutil.TestProviderSource, Version: testutil.TestProviderVersion}
+	ref := &bridgev1.ProviderRef{SessionId: "00000000-0000-0000-0000-000000000001", Source: testutil.TestProviderSource, Version: testutil.TestProviderVersion}
 
 	if _, err := c.Import(ctx, connect.NewRequest(&bridgev1.ImportRequest{Provider: ref, TypeName: "testprov_item", Id: "x"})); connect.CodeOf(err) != connect.CodeFailedPrecondition {
 		t.Fatalf("import before configure: %v", err)
@@ -166,7 +166,7 @@ func TestE2ETestProvider(t *testing.T) {
 		t.Fatalf("Configure echoed sha256 %s for an unverified dev provider", cres.Msg.GetSha256())
 	}
 	// A pin cannot match a dev provider.
-	pinned := &bridgev1.ProviderRef{Source: ref.GetSource(), Version: ref.GetVersion(), Sha256: strings.Repeat("0", 64)}
+	pinned := &bridgev1.ProviderRef{SessionId: "00000000-0000-0000-0000-000000000001", Source: ref.GetSource(), Version: ref.GetVersion(), Sha256: strings.Repeat("0", 64)}
 	if _, err := c.GetSchema(ctx, connect.NewRequest(&bridgev1.GetSchemaRequest{Provider: pinned})); connect.CodeOf(err) != connect.CodeFailedPrecondition {
 		t.Fatalf("pinned dev provider: %v", err)
 	}

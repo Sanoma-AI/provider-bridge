@@ -30,7 +30,7 @@ bin/provider-bridge serve --socket /tmp/bridge.sock --cache-dir ~/.cache/provide
 
 Each `v*` tag publishes a [GitHub release](https://github.com/Sanoma-AI/provider-bridge/releases) with a static binary for darwin and linux on arm64 and amd64 (`provider-bridge_<version>_<os>_<arch>.tar.gz`, with this repo's license and the vendored modules') and `SHA256SUMS`; see [Releasing](#releasing). Sanoma's `@sanoma-ai/bridge-<platform>` packages are to ship these binaries ([Sanoma-AI/sanoma#137](https://github.com/Sanoma-AI/sanoma/issues/137)).
 
-`serve` prints one line on stdout once it accepts connections, `{"event":"ready","socket":"/tmp/bridge.sock"}`; every log line is JSON (`slog`) on stderr, including the providers' own logs, re-emitted with `logger: provider.<source>`. Provider configuration is never logged; only its sha256 is. It stops on SIGTERM, SIGINT or EOF on stdin (so it dies with the Node process that spawned it; pass `--watch-stdin=false` to run it detached), kills every provider and removes the socket.
+`serve` prints one line on stdout once it accepts connections, `{"event":"ready","socket":"/tmp/bridge.sock"}`; every log line is JSON (`slog`) on stderr, with provider/go-plugin messages and attributes suppressed; only their severity and origin are re-emitted with `logger: provider.<source>`. Provider configuration is not logged. It stops on SIGTERM, SIGINT or EOF on stdin (so it dies with the Node process that spawned it; pass `--watch-stdin=false` to run it detached), kills every provider and removes the socket.
 
 | Flag | Meaning |
 | --- | --- |
@@ -49,7 +49,8 @@ Connect speaks plain HTTP/1.1 + JSON, so curl is enough:
 
 ```sh
 S=/tmp/bridge.sock
-P='"provider":{"source":"hashicorp/null","version":"3.3.2"}'
+SESSION=$(uuidgen | tr '[:upper:]' '[:lower:]')
+P="\"provider\":{\"source\":\"hashicorp/null\",\"version\":\"3.3.2\",\"sessionId\":\"$SESSION\"}"
 curl -s --unix-socket $S -H 'Content-Type: application/json' \
   -d "{$P}" http://bridge/sanoma.providerbridge.v1.BridgeService/GetSchema
 curl -s --unix-socket $S -H 'Content-Type: application/json' \
@@ -60,6 +61,8 @@ curl -s --unix-socket $S -H 'Content-Type: application/json' \
 # {"resource":{"typeName":"null_resource","stateJson":"{\"id\":\"1\",\"triggers\":null}"}}
 ```
 
+Check that `GetSchema` reports `sessionProtocol: 1` before continuing. Close this session after the smoke test with `Close` and the same `provider` object.
+
 gRPC and the Connect binary protocol work too, over HTTP/2 without TLS.
 
 ## The API
@@ -67,24 +70,26 @@ gRPC and the Connect binary protocol work too, over HTTP/2 without TLS.
 [`proto/bridge/v1/bridge.proto`](proto/bridge/v1/bridge.proto), package `sanoma.providerbridge.v1`, service `BridgeService`. Every call names its provider with a `ProviderRef`:
 
 ```json
-{ "source": "integrations/github", "version": "6.13.0", "sha256": "2d688e83…" }
+{ "source": "integrations/github", "version": "6.13.0", "sha256": "2d688e83…", "sessionId": "5f9e9b9f-e2ce-4cf4-889d-2534a3c8f449" }
 ```
 
-`source` is `namespace/type` (registry.opentofu.org) or `host/namespace/type` (only for a host the bridge runs with `--allow-host`). `version` is exact; ranges are refused. `sha256` is optional: the hex sha256 of the release's `SHA256SUMS` file (one pin for every platform). When set the bridge refuses any other release, on every call; it is echoed by `GetSchema` and `Configure` either way.
+`source` is `namespace/type` (registry.opentofu.org) or `host/namespace/type` (only for a host the bridge runs with `--allow-host`). `version` is exact; ranges are refused. `sessionId` is a random UUID required for configured calls, scoped to one authorized operation; `GetSchema` needs no session. It is not an account ID or a credential hash. `sha256` is optional: the hex sha256 of the release's `SHA256SUMS` file (one pin for every platform). When set the bridge refuses any other release, on every call; it is echoed by `GetSchema` and `Configure` either way.
 
 | RPC | Request | Response | Notes |
 | --- | --- | --- | --- |
-| `GetSchema` | `provider` | `schemaJson`, `protocol` (5 or 6), `sha256` | No credentials. Starts an unconfigured provider once, then serves from memory and from a copy cached beside the binary (used only by the same bridge build). |
-| `Configure` | `provider`, `configJson` | `warnings`, `sha256` | Starts a long-lived provider (seeded with the known schema, so it is not fetched again) and configures it. Same config again: no-op. Another config for the same (source, version): `FAILED_PRECONDITION` until `Close`. |
+| `GetSchema` | `provider` | `schemaJson`, `protocol` (5 or 6), `sha256`, `sessionProtocol: 1` | No credentials. Starts an unconfigured provider once, then serves from memory and from a copy cached beside the binary (used only by the same bridge build). |
+| `Configure` | `provider`, `configJson` | `warnings`, `sha256` | Starts a fresh provider for this session, seeded with the cached schema. Identical config in the same session is a no-op; different config refuses until that session closes. |
 | `Import` | `provider`, `typeName`, `id` | `resources[]`, `warnings` | `ImportResourceState`, then `ReadResource` on each result (concurrently, results in the provider's order). A missing object: `NOT_FOUND` (or the provider's own error). |
 | `Read` | `provider`, `typeName`, `stateJson`, `private`, `schemaVersion`? | `resource`, `gone`, `warnings` | Refresh from the vendor. With `schemaVersion` (the `Resource.schemaVersion` the state was written with), the provider upgrades the state (`UpgradeResourceState`) first, as OpenTofu does on every refresh; without it, `stateJson` must match the current schema. `gone: true` when the object no longer exists. |
-| `Plan` | `provider`, `typeName`, `priorStateJson` (empty: create), `priorPrivate`, `priorSchemaVersion`?, `configJson` (empty: delete) | `action`, `plannedStateJson`, `unknownPaths`, `requiresReplace`, `planned`, `plannedPrivate`, `warnings` | As OpenTofu plans: `ValidateResourceConfig`, the proposed new state (config laid over prior), `PlanResourceChange`. No refresh: `Read` first. `action` is `NONE`, `CREATE`, `UPDATE`, `REPLACE` (some `requiresReplace` attribute changed; `planned` is then the new object's plan) or `DELETE` (not sent to the provider). Unknown values are `null` in `plannedStateJson` and listed in `unknownPaths`. |
-| `Apply` | the `Plan` request's fields, `planned`, `plannedPrivate` | `resource`, `errors`, `warnings` | `ApplyResourceChange`. Provider errors come back in `errors`, not as a Connect error, beside any state the provider returned, so a create that failed half way keeps its id. A delete is `Apply` with the prior state and no `configJson` or `planned`; a replace is that delete, then `Apply` with no prior state and the plan. |
-| `Close` | `provider` (unset: all) | `{}` | Stops configured providers. |
+| `Plan` | `provider`, `typeName`, `priorStateJson` (empty: create), `priorPrivate`, `priorSchemaVersion`?, `configJson` (empty: delete) | `action`, `plannedStateJson`, `unknownPaths`, `requiresReplace`, `planned`, `plannedPrivate`, `planToken`, `warnings` | As OpenTofu plans: `ValidateResourceConfig`, the proposed new state (config laid over prior), `PlanResourceChange`. No refresh: `Read` first. `action` is `NONE`, `CREATE`, `UPDATE`, `REPLACE` (some `requiresReplace` attribute changed; `planned` is then the new object's plan) or `DELETE` (not sent to the provider). Unknown values are `null` in `plannedStateJson` and listed in `unknownPaths`. |
+| `Apply` | the `Plan` request's fields, `planned`, `plannedPrivate`, `planToken` | `resource`, `errors`, `warnings` | `ApplyResourceChange`. Provider errors come back in `errors`, not as a Connect error, beside any state the provider returned, so a create that failed half way keeps its id. A delete is `Apply` with the prior state and no `configJson` or `planned`; a replace is that delete, then `Apply` with no prior state and the plan. |
+| `Close` | `provider` (unset: all) | `{}` | Stops only the named session; omission is administrative close-all, not operation cleanup. |
 
 A `Resource` is `{ typeName, stateJson, private, schemaVersion }`. `private` is opaque provider data (base64 in JSON): pass it back unchanged on the next `Read`, with `schemaVersion` so state stored before a provider upgrade is upgraded.
 
-Calls for one (source, version) that start or configure a provider wait for each other; calls for different providers never do, and a waiting call gives up when its deadline passes.
+Sessions isolate accounts even when they use the same release. Keep one session for an authorized operation’s import/read/plan/apply sequence, then close it in `finally`. At most 64 sessions may be active or configuring; excess configuration returns `RESOURCE_EXHAUSTED`. Verified downloads and schema caches remain shared. Release resolution and schema work may serialize; credential-bearing provider processes are never reused across operations.
+
+`planToken` authenticates the exact Apply fields using a random MAC key belonging to the configured process. Cross-session, changed-input and restarted-process applies refuse; replacements authenticate their delete and create halves. This token is not a durable or one-use replay receipt. Clients must not implicitly repeat mutations after a lost response. Negotiate `GetSchema.sessionProtocol = 1` before configuration or session-specific cleanup; old binaries are incompatible, even though the OpenTofu plugin protocol remains 5/6.
 
 **Values are JSON text in string fields** (`configJson`, `stateJson`, `schemaJson`), not `google.protobuf.Struct`, so numbers keep full precision and a null attribute stays distinct from an absent one. State follows the resource type's implied type: every attribute is present (`null` when unset), sets are arrays, nested blocks and nested attributes are arrays (list, set), objects (single, group) or records (map), and a dynamic attribute is `{"value": …, "type": …}`. In requests, omitted attributes are null; unknown values cannot be expressed. A plan's unknown values ("known after apply") are `null` plus a path in `unknownPaths` (`id`, `rules[0].port`, `tags["env"]`; a set holding one is listed whole); `planned` keeps them as the provider encoded them (msgpack), and is opaque.
 
@@ -111,7 +116,7 @@ Calls for one (source, version) that start or configure a provider wait for each
 
 A list or set block with `maxItems: 1` is SDKv2's way of saying "one object". The document has no `immutable` flag: "requires replacement" is not in the schema (it is decided during plan).
 
-**Errors.** Error diagnostics from the provider become a Connect error whose details are `Diagnostic { severity, summary, detail, attributePath }` messages, one per diagnostic; warnings come back in the response. `Apply` is the exception: its provider errors are in the response. Codes: `INVALID_ARGUMENT` (bad JSON, unknown resource type, provider rejected the config or a resource's config), `FAILED_PRECONDITION` (not configured, configured differently, pin mismatch, unverifiable release, registry host not allowed, provider error diagnostic), `UNAVAILABLE` (the provider process failed or exited: configure again), `NOT_FOUND` (import found nothing).
+**Errors.** Error diagnostics from the provider become a Connect error whose details are `Diagnostic { severity, summary, detail, attributePath }` messages, one per diagnostic; warnings come back in the response. `Apply` is the exception: its provider errors are in the response. Codes: `INVALID_ARGUMENT` (bad JSON, unknown resource type, provider rejected the config or a resource's config), `FAILED_PRECONDITION` (session not configured, configured differently, invalid plan token, pin mismatch, unverifiable release, registry host not allowed, provider error diagnostic), `UNAVAILABLE` (the provider process failed or exited: configure again), `NOT_FOUND` (import found nothing).
 
 ## Supply chain
 
@@ -161,6 +166,8 @@ GITHUB_TOKEN=… go run ./cmd/bridge-record \
 `--change TYPE=SLUG=CONFIG` creates an object (repeat it with the same `TYPE=SLUG` to update it, step by step), then deletes it, recording every plan and apply; it deletes what it created even when a step fails. Use a throwaway organization for it. `mise run record` re-records the committed GitHub import fixtures, the Stripe, Supabase and Docker schemas and the `null_resource` plan/apply fixtures.
 
 ### Releasing
+
+Session protocol 1 requires a matching Go release and an update to Sanoma’s `packages/bridge/scripts/download-bridge.ts` release/archive pins. Those publication and consumer-pin steps are still pending; the TypeScript client refuses old binaries before sending provider configuration.
 
 Push a `v*` tag on a commit of `main` once its push CI passed; [`release.yml`](.github/workflows/release.yml) checks both (re-run it if CI was still running), then runs `goreleaser release` ([`.goreleaser.yaml`](.goreleaser.yaml)) with the Go and goreleaser that `.mise.toml` pins. Builds are static (`CGO_ENABLED=0`, `-trimpath`) and carry the tag as their module version, which keys the schema cache. `mise run snapshot` builds the same archives and `SHA256SUMS` into `dist/` without publishing; CI runs `goreleaser check`.
 

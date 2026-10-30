@@ -73,7 +73,7 @@ func TestIntegrationTestProvider(t *testing.T) {
 	m := provider.NewManager(testutil.Launcher(t, log, true), log)
 	t.Cleanup(m.Shutdown)
 	ctx := ctxTimeout(t)
-	ref := provider.Ref{Source: testutil.TestProviderSource, Version: testutil.TestProviderVersion}
+	ref := provider.Ref{SessionID: "00000000-0000-0000-0000-000000000001", Source: testutil.TestProviderSource, Version: testutil.TestProviderVersion}
 
 	res, err := m.Schema(ctx, ref)
 	if err != nil {

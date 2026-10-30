@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"math/big"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -132,6 +133,24 @@ func (r *item) Read(ctx context.Context, req resource.ReadRequest, resp *resourc
 		Endpoint: types.ListValueMust(types.ObjectType{AttrTypes: endpointType}, []attr.Value{
 			types.ObjectValueMust(endpointType, map[string]attr.Value{"url": types.StringValue("https://example.invalid/" + id)}),
 		}),
+	}
+
+	// Synthetic identity probe for bridge session isolation; never return the key.
+	if id == "session-account" {
+		accounts := map[string]string{"session-a-v1": "account-a", "session-a-v2": "account-a", "session-b": "account-b"}
+		account, ok := accounts[r.client.apiKey]
+		if !ok {
+			resp.Diagnostics.AddError("Unknown test account", "Use the session test configuration.")
+			return
+		}
+		if r.client.apiKey == "session-a-v1" {
+			select {
+			case <-time.After(250 * time.Millisecond):
+			case <-ctx.Done():
+				return
+			}
+		}
+		state.Name = types.StringValue(account)
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
